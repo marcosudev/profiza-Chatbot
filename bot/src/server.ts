@@ -94,6 +94,8 @@ app.post<{ Body: ZApiWebhookPayload }>("/webhook", async (request, reply) => {
 
 // ─── Webhook Status Z-API (confirmação de entrega) ────────────────────────────
 
+app.get("/webhook/status", async () => ({ ok: true }))
+
 app.post<{ Body: ZApiStatusPayload }>("/webhook/status", async (request, reply) => {
   const secret = request.headers["z-api-token"] ?? request.headers["x-webhook-secret"]
   if (secret && secret !== config.webhookSecret) {
