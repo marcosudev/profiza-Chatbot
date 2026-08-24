@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Bot de roteamento de leads via WhatsApp — Profiza",
   "main": "dist/server.js",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
