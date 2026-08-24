@@ -60,9 +60,9 @@ app.get("/", async () => {
 // ─── Webhook Z-API ────────────────────────────────────────────────────────────
 
 app.post<{ Body: ZApiWebhookPayload }>("/webhook", async (request, reply) => {
-  // Valida token de segurança (Z-API envia no header "Z-Api-Token" ou "x-webhook-secret")
+  // Valida token se enviado — Z-API não suporta headers customizados no painel
   const secret = request.headers["z-api-token"] ?? request.headers["x-webhook-secret"]
-  if (secret !== config.webhookSecret) {
+  if (secret && secret !== config.webhookSecret) {
     return reply.status(401).send({ error: "Unauthorized" })
   }
 
@@ -96,7 +96,7 @@ app.post<{ Body: ZApiWebhookPayload }>("/webhook", async (request, reply) => {
 
 app.post<{ Body: ZApiStatusPayload }>("/webhook/status", async (request, reply) => {
   const secret = request.headers["z-api-token"] ?? request.headers["x-webhook-secret"]
-  if (secret !== config.webhookSecret) {
+  if (secret && secret !== config.webhookSecret) {
     return reply.status(401).send({ error: "Unauthorized" })
   }
 
