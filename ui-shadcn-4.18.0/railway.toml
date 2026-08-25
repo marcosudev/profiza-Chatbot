@@ -4,6 +4,3 @@ buildCommand = "pnpm install --no-frozen-lockfile && pnpm --filter v4 build"
 
 [deploy]
 startCommand = "pnpm --filter v4 start"
-
-[build.environment]
-NIXPACKS_PKGS = "bun"

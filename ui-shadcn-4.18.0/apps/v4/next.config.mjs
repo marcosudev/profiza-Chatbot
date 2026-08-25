@@ -66,9 +66,6 @@ const nextConfig = {
       },
     ],
   },
-  turbopack: {
-    root: path.resolve(import.meta.dirname, "../.."),
-  },
   redirects() {
     return [
       // Form redirects to /docs/forms.
