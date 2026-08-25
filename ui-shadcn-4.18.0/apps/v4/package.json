@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  },
+  "packageManager": "pnpm@9.0.0",
   "scripts": {
     "dev": "pnpm icons:dev & next dev --turbopack --port 4000",
     "build": "pnpm registry:build && next build",
