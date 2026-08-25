@@ -1,6 +1,6 @@
 [build]
 builder = "nixpacks"
-buildCommand = "pnpm install --no-frozen-lockfile && pnpm --filter v4 exec next build"
+buildCommand = "pnpm install --no-frozen-lockfile && pnpm --filter=@shadcn/react build && pnpm --filter=@shadcn/helpers build && pnpm --filter=shadcn build && pnpm --filter v4 exec next build"
 
 [deploy]
 startCommand = "pnpm --filter v4 start"
