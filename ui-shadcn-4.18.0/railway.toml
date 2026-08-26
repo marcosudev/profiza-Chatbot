@@ -1,6 +1,8 @@
 [build]
-builder = "nixpacks"
+builder = "NIXPACKS"
 buildCommand = "pnpm install --no-frozen-lockfile && pnpm --filter=@shadcn/react build && pnpm --filter=@shadcn/helpers build && pnpm --filter=shadcn build && pnpm --filter v4 exec next build"
 
 [deploy]
-startCommand = "pnpm --filter v4 start"
+startCommand = "pnpm --filter v4 exec next start"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
