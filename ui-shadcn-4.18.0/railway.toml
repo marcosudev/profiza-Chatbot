@@ -1,6 +1,6 @@
 [build]
 builder = "NIXPACKS"
-buildCommand = "pnpm install --no-frozen-lockfile && pnpm --filter=@shadcn/react build && pnpm --filter=@shadcn/helpers build && pnpm --filter=shadcn build && cd apps/v4 && pnpm registry:build && cd ../.. && pnpm --filter v4 exec next build --no-turbopack"
+buildCommand = "pnpm install --no-frozen-lockfile && pnpm --filter=@shadcn/react build && pnpm --filter=@shadcn/helpers build && pnpm --filter=shadcn build && cd apps/v4 && pnpm registry:build && cd ../.. && pnpm --filter v4 exec next build --webpack"
 
 [deploy]
 startCommand = "pnpm --filter v4 exec next start --port ${PORT:-4000}"
