@@ -48,7 +48,8 @@ const nextConfig = {
     ],
   },
   outputFileTracingIncludes: {
-    "/*": ["./registry/**/*", "./styles/**/*"],
+    "/view/*": ["./registry/**/*", "./styles/**/*"],
+    "/r/*": ["./registry/**/*"],
   },
   images: {
     remotePatterns: [
