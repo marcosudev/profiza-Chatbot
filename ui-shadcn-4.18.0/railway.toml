@@ -3,7 +3,7 @@ builder = "NIXPACKS"
 buildCommand = "pnpm install --no-frozen-lockfile && pnpm --filter=@shadcn/react build && pnpm --filter=@shadcn/helpers build && pnpm --filter=shadcn build && cd apps/v4 && pnpm registry:build && cd ../.. && pnpm --filter v4 exec next build --webpack"
 
 [deploy]
-startCommand = "cd apps/v4 && node_modules/.bin/next start --port ${PORT:-4000}"
+startCommand = "cd apps/v4 && node_modules/.bin/next start -p ${PORT}"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
 
