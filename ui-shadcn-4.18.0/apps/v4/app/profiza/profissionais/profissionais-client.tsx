@@ -295,6 +295,26 @@ export function ProfissionaisClient({ initialProfessionals, metricasMap }: Props
                 <Download className="h-4 w-4" />
                 <span className="hidden sm:inline">Exportar</span>
               </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive md:h-9 md:text-sm"
+                onClick={async () => {
+                  if (confirm("ATENÇÃO: Deseja apagar TODOS os profissionais e dados de teste do banco para colocar a base em produção?")) {
+                    try {
+                      const { actionClearAllData } = await import("@/app/profiza/actions/profissionais")
+                      await actionClearAllData()
+                      setRows([])
+                      toast.success("Banco de dados zerado com sucesso!")
+                    } catch {
+                      toast.error("Erro ao zerar dados.")
+                    }
+                  }
+                }}
+              >
+                <Trash2 className="h-4 w-4" />
+                <span className="hidden sm:inline">Zerar dados</span>
+              </Button>
             </div>
           </CardHeader>
           <CardContent className="p-0">

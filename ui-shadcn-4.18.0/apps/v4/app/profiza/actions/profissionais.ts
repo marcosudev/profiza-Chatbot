@@ -52,3 +52,13 @@ export async function actionSaveConfiguracoes(data: Partial<Configuracoes>) {
   await updateConfiguracoes(data)
   revalidatePath("/profiza/configuracao")
 }
+
+export async function actionClearAllData() {
+  const { clearAllData } = await import("@/lib/supabase/queries")
+  await clearAllData()
+  revalidatePath("/profiza")
+  revalidatePath("/profiza/profissionais")
+  revalidatePath("/profiza/leads")
+  revalidatePath("/profiza/cobranca")
+  revalidatePath("/profiza/configuracao")
+}

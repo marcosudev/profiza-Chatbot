@@ -121,6 +121,17 @@ export async function deleteProfissional(id: string) {
   if (error) throw error
 }
 
+export async function clearAllData() {
+  const supabase = await createClient()
+  await supabase.from("cobrancas").delete().neq("id", "00000000-0000-0000-0000-000000000000")
+  await supabase.from("leads_eventos").delete().neq("id", "00000000-0000-0000-0000-000000000000")
+  await supabase.from("logs_eventos").delete().neq("id", "00000000-0000-0000-0000-000000000000")
+  await supabase.from("metricas_bot").delete().neq("id", "00000000-0000-0000-0000-000000000000")
+  await supabase.from("leads").delete().neq("id", "00000000-0000-0000-0000-000000000000")
+  await supabase.from("clientes").delete().neq("id", "00000000-0000-0000-0000-000000000000")
+  await supabase.from("profissionais").delete().neq("id", "00000000-0000-0000-0000-000000000000")
+}
+
 // ============================================================
 // Leads
 // ============================================================

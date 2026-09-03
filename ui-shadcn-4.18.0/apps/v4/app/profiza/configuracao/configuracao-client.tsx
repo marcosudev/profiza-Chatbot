@@ -11,6 +11,7 @@ import {
   Lock,
   Palette,
   Save,
+  Trash2,
   User,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -306,6 +307,46 @@ export function ConfiguracaoClient({ adminEmail, configuracoes }: Props) {
                 ))}
               </div>
             </CardContent>
+          </Card>
+
+          {/* Reset de Banco / Limpeza de Mockups */}
+          <Card className="border border-destructive/30 bg-destructive/5 shadow-sm lg:col-span-2">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Trash2 className="h-5 w-5 text-destructive" />
+                  <div>
+                    <CardTitle className="text-destructive">Zerar Banco de Dados (Reset para Produção)</CardTitle>
+                    <CardDescription>
+                      Remove permanentemente todos os profissionais fictícios, leads e registros de teste da base.
+                    </CardDescription>
+                  </div>
+                </div>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={async () => {
+                    if (confirm("ATENÇÃO: Deseja realmente apagar TODOS os profissionais e dados fictícios do banco para colocar em produção?")) {
+                      setSaving(true)
+                      try {
+                        const { actionClearAllData } = await import("@/app/profiza/actions/profissionais")
+                        await actionClearAllData()
+                        toast.success("Banco de dados zerado com sucesso! Pronto para produção.")
+                        router.refresh()
+                      } catch {
+                        toast.error("Erro ao zerar o banco de dados.")
+                      } finally {
+                        setSaving(false)
+                      }
+                    }
+                  }}
+                  disabled={saving}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Zerar dados de teste
+                </Button>
+              </div>
+            </CardHeader>
           </Card>
         </div>
 
