@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": [
+    "app/profiza/**/*",
+    "app/login/**/*",
+    "app/recuperar-senha/**/*",
+    "components/profiza/**/*",
+    "lib/supabase/**/*",
+    "lib/profiza-*.ts",
+    "hooks/use-*.ts*",
+    "middleware.ts"
+  ]
+}
