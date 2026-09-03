@@ -47,8 +47,9 @@ export async function enviarMensagem(
       return { sucesso: false }
     }
 
-    console.log(`[zapi] Mensagem enviada para ${numero} — id: ${data.messageId}`)
-    return { sucesso: true, messageId: data.messageId }
+    const msgId = data.messageId ?? data.zaapId
+    console.log(`[zapi] Mensagem enviada para ${numero} — id: ${msgId}`)
+    return { sucesso: true, messageId: msgId }
   } catch (err) {
     console.error("[zapi] Falha na requisição:", err)
     return { sucesso: false }

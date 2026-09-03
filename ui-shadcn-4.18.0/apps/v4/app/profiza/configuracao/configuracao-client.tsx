@@ -51,6 +51,7 @@ export function ConfiguracaoClient({ adminEmail, configuracoes }: Props) {
   const [changingPassword, setChangingPassword] = React.useState(false)
   const [newPassword, setNewPassword] = React.useState("")
   const [confirmPassword, setConfirmPassword] = React.useState("")
+  const [cidade, setCidade] = React.useState(configuracoes.cidade || "Bauru - SP")
   const [trialDays, setTrialDays] = React.useState(String(configuracoes.trialDays))
   const [price, setPrice] = React.useState(String(configuracoes.subscriptionPrice))
   const [notifTeste, setNotifTeste] = React.useState(configuracoes.notifTesteVencendo)
@@ -61,6 +62,7 @@ export function ConfiguracaoClient({ adminEmail, configuracoes }: Props) {
     setSaving(true)
     try {
       await actionSaveConfiguracoes({
+        cidade,
         trialDays: Number(trialDays),
         subscriptionPrice: Number(price),
         notifTesteVencendo: notifTeste,
@@ -195,10 +197,10 @@ export function ConfiguracaoClient({ adminEmail, configuracoes }: Props) {
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label>Cidade de operação</Label>
-                <Select defaultValue="bauru">
+                <Select value={cidade} onValueChange={setCidade}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="bauru">Bauru - SP</SelectItem>
+                    <SelectItem value="Bauru - SP">Bauru - SP</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

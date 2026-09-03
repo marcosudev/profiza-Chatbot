@@ -398,13 +398,13 @@ export async function getDashboardSummary() {
       .gte("created_at", inicioSemana.toISOString()),
   ])
 
-  if (error) throw error
+  const list = profs ?? []
 
   return {
-    ativos: profs!.filter((r) => r.status === "ativo").length,
-    testeGratis: profs!.filter((r) => r.status === "teste_gratis").length,
+    ativos: list.filter((r) => r.status === "ativo").length,
+    testeGratis: list.filter((r) => r.status === "teste_gratis").length,
     leadsSemana: leadsSemana ?? 0,
-    vencendoSeteDias: profs!.filter((r) => {
+    vencendoSeteDias: list.filter((r) => {
       if (r.status !== "teste_gratis" || !r.teste_gratis_expira_em) return false
       return new Date(r.teste_gratis_expira_em) <= sevenDaysFromNow
     }).length,
