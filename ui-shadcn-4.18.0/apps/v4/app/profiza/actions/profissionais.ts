@@ -82,6 +82,18 @@ export async function actionUpdateDespesaStatus(id: string, status: any) {
   revalidatePath("/profiza/financas")
 }
 
+export async function actionUpdateDespesa(id: string, input: any) {
+  try {
+    const { updateDespesa } = await import("@/lib/supabase/queries")
+    await updateDespesa(id, input)
+    revalidatePath("/profiza/financas")
+    return { success: true }
+  } catch (err: any) {
+    console.error("[actionUpdateDespesa] Error:", err)
+    return { success: false, error: err?.message || "Erro ao atualizar despesa" }
+  }
+}
+
 export async function actionDeleteDespesa(id: string) {
   const { deleteDespesa } = await import("@/lib/supabase/queries")
   await deleteDespesa(id)

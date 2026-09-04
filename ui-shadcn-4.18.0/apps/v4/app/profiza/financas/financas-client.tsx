@@ -9,6 +9,7 @@ import {
   DollarSign,
   Download,
   FileText,
+  Pencil,
   Plus,
   Printer,
   Receipt,
@@ -40,6 +41,7 @@ import { DespesaFormDialog } from "@/components/profiza/despesa-form-dialog"
 import { ReciboDialog } from "@/components/profiza/recibo-dialog"
 import {
   actionCreateDespesa,
+  actionUpdateDespesa,
   actionUpdateDespesaStatus,
   actionDeleteDespesa,
   actionUpdateFaturaStatus,
@@ -73,20 +75,41 @@ const CATEGORIA_LABELS: Record<string, string> = {
 export function FinancasClient({ summary, despesas, faturas }: Props) {
   const router = useRouter()
   const [despesaModalOpen, setDespesaModalOpen] = React.useState(false)
+  const [editingDespesa, setEditingDespesa] = React.useState<Despesa | null>(null)
   const [reciboModalOpen, setReciboModalOpen] = React.useState(false)
   const [selectedFatura, setSelectedFatura] = React.useState<Fatura | null>(null)
 
-  const handleCreateDespesaSubmit = async (data: any) => {
+  const handleOpenNewDespesa = () => {
+    setEditingDespesa(null)
+    setDespesaModalOpen(true)
+  }
+
+  const handleOpenEditDespesa = (despesa: Despesa) => {
+    setEditingDespesa(despesa)
+    setDespesaModalOpen(true)
+  }
+
+  const handleSaveDespesaSubmit = async (data: any) => {
     try {
-      const res = await actionCreateDespesa(data)
-      if (res && !res.success) {
-        toast.error(`Erro ao lançar despesa: ${res.error}`)
-        return
+      if (editingDespesa) {
+        const res = await actionUpdateDespesa(editingDespesa.id, data)
+        if (res && !res.success) {
+          toast.error(`Erro ao atualizar despesa: ${res.error}`)
+          return
+        }
+        toast.success("Despesa atualizada com sucesso!")
+      } else {
+        const res = await actionCreateDespesa(data)
+        if (res && !res.success) {
+          toast.error(`Erro ao lançar despesa: ${res.error}`)
+          return
+        }
+        toast.success("Despesa lançada com sucesso!")
       }
-      toast.success("Despesa lançada com sucesso!")
+      setEditingDespesa(null)
       router.refresh()
     } catch {
-      toast.error("Erro ao lançar despesa.")
+      toast.error("Erro ao salvar despesa.")
     }
   }
 
@@ -147,7 +170,7 @@ export function FinancasClient({ summary, despesas, faturas }: Props) {
             <h2 className="text-xl font-bold tracking-tight">Painel Financeiro Profiza</h2>
             <p className="text-sm text-muted-foreground">Modelo de Negócio: Assinatura Mensal Fixa (R$ {summary.valorPlano.toFixed(2)}/prestador)</p>
           </div>
-          <Button onClick={() => setDespesaModalOpen(true)}>
+          <Button onClick={handleOpenNewDespesa}>
             <Plus className="mr-2 h-4 w-4" />
             Lançar despesa
           </Button>
@@ -373,7 +396,7 @@ export function FinancasClient({ summary, despesas, faturas }: Props) {
                   <CardTitle>Despesas & Custos Operacionais</CardTitle>
                   <CardDescription>Gastos com ferramentas, infraestrutura, marketing e pessoal</CardDescription>
                 </div>
-                <Button size="sm" onClick={() => setDespesaModalOpen(true)}>
+                <Button size="sm" onClick={handleOpenNewDespesa}>
                   <Plus className="mr-2 h-4 w-4" />
                   Nova Despesa
                 </Button>
@@ -421,7 +444,10 @@ export function FinancasClient({ summary, despesas, faturas }: Props) {
                               <Button variant="outline" size="sm" onClick={() => handleToggleDespesaStatus(despesa.id, despesa.status)}>
                                 {despesa.status === "pago" ? "Pendente" : "Marcar Pago"}
                               </Button>
-                              <Button variant="ghost" size="icon" onClick={() => handleDeleteDespesaClick(despesa.id)} className="text-destructive hover:bg-destructive/10">
+                              <Button variant="ghost" size="icon" onClick={() => handleOpenEditDespesa(despesa)} title="Editar Despesa">
+                                <Pencil className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                              </Button>
+                              <Button variant="ghost" size="icon" onClick={() => handleDeleteDespesaClick(despesa.id)} className="text-destructive hover:bg-destructive/10" title="Excluir Despesa">
                                 <Trash2 className="h-4 w-4" />
                               </Button>
                             </td>
@@ -437,7 +463,7 @@ export function FinancasClient({ summary, despesas, faturas }: Props) {
         </Tabs>
       </div>
 
-      <DespesaFormDialog open={despesaModalOpen} onOpenChange={setDespesaModalOpen} onSubmit={handleCreateDespesaSubmit} />
+      <DespesaFormDialog open={despesaModalOpen} onOpenChange={setDespesaModalOpen} initialData={editingDespesa} onSubmit={handleSaveDespesaSubmit} />
       <ReciboDialog open={reciboModalOpen} onOpenChange={setReciboModalOpen} fatura={selectedFatura} />
     </>
   )

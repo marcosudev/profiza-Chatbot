@@ -557,6 +557,32 @@ export async function updateDespesaStatus(id: string, status: "pendente" | "pago
   if (error) throw error
 }
 
+export async function updateDespesa(id: string, input: Partial<Omit<Despesa, "id">>): Promise<void> {
+  const supabase = await createClient()
+  const dataPagamento = input.status === "pago"
+    ? (input.dataPagamento || input.dataVencimento || new Date().toISOString().split("T")[0])
+    : (input.status === "pendente" ? null : undefined)
+
+  const { error } = await supabase
+    .from("despesas")
+    .update({
+      ...(input.descricao !== undefined && { descricao: input.descricao }),
+      ...(input.categoria !== undefined && { categoria: input.categoria }),
+      ...(input.valor !== undefined && { valor: input.valor }),
+      ...(input.dataVencimento !== undefined && { data_vencimento: input.dataVencimento }),
+      ...(dataPagamento !== undefined && { data_pagamento: dataPagamento }),
+      ...(input.status !== undefined && { status: input.status }),
+      ...(input.recorrente !== undefined && { recorrente: input.recorrente }),
+      ...(input.observacoes !== undefined && { observacoes: input.observacoes }),
+    })
+    .eq("id", id)
+
+  if (error) {
+    console.error("[updateDespesa] Supabase error:", error)
+    throw new Error(error.message || "Erro ao atualizar despesa.")
+  }
+}
+
 export async function deleteDespesa(id: string) {
   const supabase = await createClient()
   const { error } = await supabase

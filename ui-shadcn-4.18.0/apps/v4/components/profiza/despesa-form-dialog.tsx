@@ -24,7 +24,7 @@ import {
   SelectValue,
 } from "@/registry/new-york-v4/ui/select"
 import { Textarea } from "@/registry/new-york-v4/ui/textarea"
-import type { CategoriaDespesa } from "@/lib/supabase/queries"
+import type { CategoriaDespesa, Despesa } from "@/lib/supabase/queries"
 
 const despesaSchema = z.object({
   descricao: z.string().min(2, "Descrição é obrigatória"),
@@ -47,11 +47,14 @@ type DespesaFormData = z.infer<typeof despesaSchema>
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
+  initialData?: Despesa | null
   onSubmit: (data: DespesaFormData) => Promise<void>
 }
 
-export function DespesaFormDialog({ open, onOpenChange, onSubmit }: Props) {
+export function DespesaFormDialog({ open, onOpenChange, initialData, onSubmit }: Props) {
   const [loading, setLoading] = React.useState(false)
+  const isEditing = !!initialData
+
   const {
     register,
     handleSubmit,
@@ -72,6 +75,30 @@ export function DespesaFormDialog({ open, onOpenChange, onSubmit }: Props) {
     },
   })
 
+  React.useEffect(() => {
+    if (initialData) {
+      reset({
+        descricao: initialData.descricao,
+        categoria: initialData.categoria,
+        valor: initialData.valor,
+        dataVencimento: initialData.dataVencimento,
+        recorrente: initialData.recorrente,
+        status: initialData.status === "cancelado" ? "pendente" : initialData.status,
+        observacoes: initialData.observacoes || "",
+      })
+    } else {
+      reset({
+        descricao: "",
+        categoria: "infraestrutura_software",
+        valor: 0,
+        dataVencimento: new Date().toISOString().split("T")[0],
+        recorrente: "mensal",
+        status: "pago",
+        observacoes: "",
+      })
+    }
+  }, [initialData, reset, open])
+
   const selectedCategoria = watch("categoria")
   const selectedRecorrente = watch("recorrente")
   const selectedStatus = watch("status")
@@ -91,9 +118,11 @@ export function DespesaFormDialog({ open, onOpenChange, onSubmit }: Props) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>Lançar Nova Despesa</DialogTitle>
+          <DialogTitle>{isEditing ? "Editar Despesa" : "Lançar Nova Despesa"}</DialogTitle>
           <DialogDescription>
-            Registre custos operacionais, ferramentas, infraestrutura ou marketing da empresa.
+            {isEditing
+              ? "Altere os dados, valor ou vencimento do gasto cadastrado."
+              : "Registre custos operacionais, ferramentas, infraestrutura ou marketing da empresa."}
           </DialogDescription>
         </DialogHeader>
 
@@ -178,7 +207,13 @@ export function DespesaFormDialog({ open, onOpenChange, onSubmit }: Props) {
               Cancelar
             </Button>
             <Button type="submit" disabled={loading}>
-              {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Salvando...</> : "Cadastrar Despesa"}
+              {loading ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Salvando...</>
+              ) : isEditing ? (
+                "Salvar Alterações"
+              ) : (
+                "Cadastrar Despesa"
+              )}
             </Button>
           </div>
         </form>
@@ -186,4 +221,3 @@ export function DespesaFormDialog({ open, onOpenChange, onSubmit }: Props) {
     </Dialog>
   )
 }
-
