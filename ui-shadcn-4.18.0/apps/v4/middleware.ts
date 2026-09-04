@@ -38,12 +38,6 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  if (isLoginPage && user) {
-    const url = request.nextUrl.clone()
-    url.pathname = "/profiza"
-    return NextResponse.redirect(url)
-  }
-
   return supabaseResponse
 }
 

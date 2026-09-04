@@ -12,6 +12,7 @@ import {
   Wallet,
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
+import { clearAdminSession } from "@/components/profiza/auth-session-guard"
 
 const navItems = [
   { label: "Dashboard", icon: LayoutGrid, href: "/profiza" },
@@ -29,6 +30,7 @@ export function Sidebar({ retencao }: { retencao: number }) {
   async function handleLogout() {
     const supabase = createClient()
     await supabase.auth.signOut()
+    clearAdminSession()
     router.push("/login")
     router.refresh()
   }

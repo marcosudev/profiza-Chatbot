@@ -32,6 +32,13 @@ if (process.env.NODE_ENV === "development") {
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   devIndicators: false,
+  env: {
+    NEXT_PUBLIC_DEPLOY_VERSION:
+      process.env.NEXT_PUBLIC_DEPLOY_VERSION ??
+      process.env.RAILWAY_GIT_COMMIT_SHA ??
+      process.env.VERCEL_GIT_COMMIT_SHA ??
+      "development",
+  },
   typescript: {
     ignoreBuildErrors: true,
   },

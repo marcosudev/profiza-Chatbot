@@ -5,6 +5,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Eye, EyeOff, Loader2 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
+import { markAdminSession } from "@/components/profiza/auth-session-guard"
 import { Button } from "@/registry/new-york-v4/ui/button"
 import { Input } from "@/registry/new-york-v4/ui/input"
 import { Label } from "@/registry/new-york-v4/ui/label"
@@ -16,6 +17,10 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [rememberMe, setRememberMe] = useState(false)
+
+  const deployVersion =
+    process.env.NEXT_PUBLIC_DEPLOY_VERSION ?? "development"
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -31,6 +36,7 @@ export default function LoginPage() {
       return
     }
 
+    markAdminSession(rememberMe, deployVersion)
     router.push("/profiza")
     router.refresh()
   }
@@ -171,6 +177,16 @@ export default function LoginPage() {
                 </button>
               </div>
             </div>
+
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="h-4 w-4 accent-primary"
+              />
+              Permanecer conectado neste navegador
+            </label>
 
             {error && (
               <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3">
