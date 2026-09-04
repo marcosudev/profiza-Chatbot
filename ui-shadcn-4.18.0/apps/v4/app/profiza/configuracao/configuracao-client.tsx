@@ -1,17 +1,13 @@
 "use client"
 
 import * as React from "react"
-import { useRouter } from "next/navigation"
 import {
   Bell,
   Bot,
   Building2,
   Globe,
   Key,
-  Loader2,
-  Lock,
   MessageSquare,
-  Palette,
   Save,
   Sparkles,
   Trash2,
@@ -40,8 +36,6 @@ import {
 import { Switch } from "@/registry/new-york-v4/ui/switch"
 
 import { Header } from "@/components/profiza/header"
-import { ThemeToggle } from "@/components/profiza/theme-toggle"
-import { createClient } from "@/lib/supabase/client"
 import { actionSaveConfiguracoes } from "@/app/profiza/actions/profissionais"
 import type { Configuracoes } from "@/lib/supabase/queries"
 
@@ -51,11 +45,7 @@ interface Props {
 }
 
 export function ConfiguracaoClient({ adminEmail, configuracoes }: Props) {
-  const router = useRouter()
   const [saving, setSaving] = React.useState(false)
-  const [changingPassword, setChangingPassword] = React.useState(false)
-  const [newPassword, setNewPassword] = React.useState("")
-  const [confirmPassword, setConfirmPassword] = React.useState("")
   const [cidade, setCidade] = React.useState(configuracoes.cidade || "Bauru - SP")
   const [trialDays, setTrialDays] = React.useState(String(configuracoes.trialDays))
   const [price, setPrice] = React.useState(String(configuracoes.subscriptionPrice))
@@ -92,30 +82,6 @@ export function ConfiguracaoClient({ adminEmail, configuracoes }: Props) {
     }
   }
 
-  const handleChangePassword = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (newPassword !== confirmPassword) {
-      toast.error("As senhas não coincidem")
-      return
-    }
-    if (newPassword.length < 6) {
-      toast.error("A senha deve ter pelo menos 6 caracteres")
-      return
-    }
-    setChangingPassword(true)
-    const supabase = createClient()
-    const { error } = await supabase.auth.updateUser({ password: newPassword })
-    setChangingPassword(false)
-    if (error) {
-      toast.error("Erro ao alterar senha")
-      return
-    }
-    setNewPassword("")
-    setConfirmPassword("")
-    toast.success("Senha alterada com sucesso")
-    router.refresh()
-  }
-
   return (
     <>
       <Header title="Configuração" subtitle="Preferências do sistema" />
@@ -150,54 +116,6 @@ export function ConfiguracaoClient({ adminEmail, configuracoes }: Props) {
             </CardContent>
           </Card>
 
-          {/* Alterar senha */}
-          <Card className="border-none shadow-sm">
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <Lock className="h-5 w-5 text-muted-foreground" />
-                <div>
-                  <CardTitle>Alterar senha</CardTitle>
-                  <CardDescription>Redefina sua senha de acesso</CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleChangePassword} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="new-password">Nova senha</Label>
-                  <Input
-                    id="new-password"
-                    type="password"
-                    placeholder="••••••••"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    required
-                    minLength={6}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="confirm-password">Confirmar senha</Label>
-                  <Input
-                    id="confirm-password"
-                    type="password"
-                    placeholder="••••••••"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    required
-                    minLength={6}
-                  />
-                </div>
-                <Button type="submit" variant="outline" className="w-full" disabled={changingPassword}>
-                  {changingPassword ? (
-                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Alterando...</>
-                  ) : (
-                    "Alterar senha"
-                  )}
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
-
           {/* Empresa */}
           <Card className="border-none shadow-sm">
             <CardHeader>
@@ -226,35 +144,6 @@ export function ConfiguracaoClient({ adminEmail, configuracoes }: Props) {
               <div className="space-y-2">
                 <Label htmlFor="price">Valor da assinatura (R$)</Label>
                 <Input id="price" type="number" step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} />
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Aparência */}
-          <Card className="border-none shadow-sm">
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <Palette className="h-5 w-5 text-muted-foreground" />
-                <div>
-                  <CardTitle>Aparência</CardTitle>
-                  <CardDescription>Personalize a interface</CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-foreground">Tema</p>
-                  <p className="text-sm text-muted-foreground">Alterne entre claro e escuro</p>
-                </div>
-                <ThemeToggle />
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-foreground">Animações</p>
-                  <p className="text-sm text-muted-foreground">Transições suaves na interface</p>
-                </div>
-                <Switch defaultChecked />
               </div>
             </CardContent>
           </Card>

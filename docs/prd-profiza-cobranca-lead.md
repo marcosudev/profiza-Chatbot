@@ -1,4 +1,6 @@
-# PRD — Profiza: Cobrança por Lead Entregue
+# PRD — Profiza: Cobrança por Lead Entregue (Obsoleto)
+
+> **Status:** Obsoleto desde 4 de setembro de 2026. O modelo comercial vigente passou a ser uma assinatura fixa de R$ 29,90 por mês, sem cobrança por lead. Este documento permanece apenas como histórico e não deve orientar novas implementações.
 
 ## 1. Visão Geral
 
