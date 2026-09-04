@@ -8,13 +8,14 @@ import {
   MessageSquareText,
   Settings,
   Users,
+  Wallet,
 } from "lucide-react"
 
 const navItems = [
   { label: "Home", icon: LayoutGrid, href: "/profiza" },
   { label: "Prof.", icon: Users, href: "/profiza/profissionais" },
   { label: "Leads", icon: MessageSquareText, href: "/profiza/leads" },
-  { label: "Cobrar", icon: CircleDollarSign, href: "/profiza/cobranca" },
+  { label: "Finanças", icon: Wallet, href: "/profiza/financas" },
   { label: "Config", icon: Settings, href: "/profiza/configuracao" },
 ]
 

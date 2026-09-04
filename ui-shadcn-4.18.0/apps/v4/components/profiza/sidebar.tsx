@@ -9,6 +9,7 @@ import {
   MessageSquareText,
   Settings,
   Users,
+  Wallet,
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 
@@ -17,6 +18,7 @@ const navItems = [
   { label: "Profissionais", icon: Users, href: "/profiza/profissionais" },
   { label: "Leads", icon: MessageSquareText, href: "/profiza/leads" },
   { label: "Cobrança", icon: CircleDollarSign, href: "/profiza/cobranca" },
+  { label: "Finanças", icon: Wallet, href: "/profiza/financas" },
   { label: "Configuração", icon: Settings, href: "/profiza/configuracao" },
 ]
 

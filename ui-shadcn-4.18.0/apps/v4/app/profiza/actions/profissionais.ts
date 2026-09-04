@@ -61,4 +61,30 @@ export async function actionClearAllData() {
   revalidatePath("/profiza/leads")
   revalidatePath("/profiza/cobranca")
   revalidatePath("/profiza/configuracao")
+  revalidatePath("/profiza/financas")
+}
+
+export async function actionCreateDespesa(input: any) {
+  const { createDespesa } = await import("@/lib/supabase/queries")
+  const res = await createDespesa(input)
+  revalidatePath("/profiza/financas")
+  return res
+}
+
+export async function actionUpdateDespesaStatus(id: string, status: any) {
+  const { updateDespesaStatus } = await import("@/lib/supabase/queries")
+  await updateDespesaStatus(id, status)
+  revalidatePath("/profiza/financas")
+}
+
+export async function actionDeleteDespesa(id: string) {
+  const { deleteDespesa } = await import("@/lib/supabase/queries")
+  await deleteDespesa(id)
+  revalidatePath("/profiza/financas")
+}
+
+export async function actionUpdateFaturaStatus(id: string, status: any) {
+  const { updateFaturaStatus } = await import("@/lib/supabase/queries")
+  await updateFaturaStatus(id, status)
+  revalidatePath("/profiza/financas")
 }

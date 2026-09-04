@@ -5,6 +5,8 @@
 -- ============================================================
 
 -- Limpa todas as tabelas operacionais em ordem de dependência
+TRUNCATE TABLE public.faturas CASCADE;
+TRUNCATE TABLE public.despesas CASCADE;
 TRUNCATE TABLE public.cobrancas CASCADE;
 TRUNCATE TABLE public.leads_eventos CASCADE;
 TRUNCATE TABLE public.logs_eventos CASCADE;

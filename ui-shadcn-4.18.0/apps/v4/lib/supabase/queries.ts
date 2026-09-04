@@ -447,3 +447,191 @@ export async function getDashboardSummary() {
     }).length,
   }
 }
+
+// ============================================================
+// Módulo Financeiro & Fluxo de Caixa (Profiza Finance)
+// ============================================================
+
+export type CategoriaDespesa =
+  | "infraestrutura_software"
+  | "marketing_vendas"
+  | "impostos_taxas"
+  | "operacional_pessoal"
+  | "outros"
+
+export interface Despesa {
+  id: string
+  descricao: string
+  categoria: CategoriaDespesa
+  valor: number
+  dataVencimento: string
+  dataPagamento: string | null
+  status: "pendente" | "pago" | "cancelado"
+  recorrente: "unica" | "mensal" | "anual"
+  observacoes?: string
+}
+
+export interface Fatura {
+  id: string
+  profissionalId: string
+  profissionalNome: string
+  profissionalWhatsapp: string
+  mesReferencia: string
+  valorPlano: number
+  status: "pendente" | "pago" | "atrasado" | "cancelado"
+  vencimentoAt: string
+  pagoEm: string | null
+  pixCopiaCola?: string
+}
+
+export async function getDespesas(): Promise<Despesa[]> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from("despesas")
+    .select("*")
+    .order("data_vencimento", { ascending: false })
+
+  if (error || !data) return []
+  return data.map((d) => ({
+    id: d.id,
+    descricao: d.descricao,
+    categoria: d.categoria as CategoriaDespesa,
+    valor: Number(d.valor),
+    dataVencimento: d.data_vencimento,
+    dataPagamento: d.data_pagamento,
+    status: d.status,
+    recorrente: d.recorrente,
+    observacoes: d.observacoes,
+  }))
+}
+
+export async function createDespesa(input: Omit<Despesa, "id">): Promise<Despesa> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from("despesas")
+    .insert({
+      descricao: input.descricao,
+      categoria: input.categoria,
+      valor: input.valor,
+      data_vencimento: input.dataVencimento,
+      data_pagamento: input.dataPagamento || null,
+      status: input.status,
+      recorrente: input.recorrente,
+      observacoes: input.observacoes || null,
+    })
+    .select()
+    .single()
+
+  if (error) throw error
+  return {
+    id: data.id,
+    descricao: data.descricao,
+    categoria: data.categoria as CategoriaDespesa,
+    valor: Number(data.valor),
+    dataVencimento: data.data_vencimento,
+    dataPagamento: data.data_pagamento,
+    status: data.status,
+    recorrente: data.recorrente,
+    observacoes: data.observacoes,
+  }
+}
+
+export async function updateDespesaStatus(id: string, status: "pendente" | "pago" | "cancelado") {
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from("despesas")
+    .update({
+      status,
+      ...(status === "pago" && { data_pagamento: new Date().toISOString().split("T")[0] }),
+    })
+    .eq("id", id)
+
+  if (error) throw error
+}
+
+export async function deleteDespesa(id: string) {
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from("despesas")
+    .delete()
+    .eq("id", id)
+
+  if (error) throw error
+}
+
+export async function getFaturas(): Promise<Fatura[]> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from("faturas")
+    .select("*, profissionais(nome, whatsapp)")
+    .order("vencimento_at", { ascending: false })
+
+  if (error || !data) return []
+  return data.map((f) => {
+    const prof = f.profissionais as { nome?: string; whatsapp?: string } | null
+    return {
+      id: f.id,
+      profissionalId: f.profissional_id,
+      profissionalNome: prof?.nome ?? "Profissional",
+      profissionalWhatsapp: prof?.whatsapp ?? "",
+      mesReferencia: f.mes_referencia,
+      valorPlano: Number(f.valor_plano),
+      status: f.status,
+      vencimentoAt: f.vencimento_at,
+      pagoEm: f.pago_em,
+      pixCopiaCola: f.pix_copia_cola,
+    }
+  })
+}
+
+export async function updateFaturaStatus(id: string, status: "pendente" | "pago" | "atrasado" | "cancelado") {
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from("faturas")
+    .update({
+      status,
+      ...(status === "pago" && { pago_em: new Date().toISOString() }),
+    })
+    .eq("id", id)
+
+  if (error) throw error
+}
+
+export async function getFinancasSummary() {
+  const [despesas, faturas, profs, config] = await Promise.all([
+    getDespesas(),
+    getFaturas(),
+    createClient().then((s) => s.from("profissionais").select("id, status")),
+    getConfiguracoes(),
+  ])
+
+  const profsList = profs.data ?? []
+  const ativosCount = profsList.filter((p) => p.status === "ativo").length
+  const valorPlano = config.subscriptionPrice
+
+  // MRR Previsto = Profissionais Ativos * Valor do Plano
+  const mrrPrevisto = ativosCount * valorPlano
+
+  // Entradas Efetivas em Caixa = Faturas Pagas no mês ou assinaturas ativas
+  const faturasPagas = faturas.filter((f) => f.status === "pago")
+  const receitaEfetiva = faturasPagas.reduce((acc, f) => acc + f.valorPlano, 0) || mrrPrevisto
+
+  // Despesas pagas ou totais do mês
+  const despesasTotais = despesas
+    .filter((d) => d.status !== "cancelado")
+    .reduce((acc, d) => acc + d.valor, 0)
+
+  // Lucro Líquido = Receita Efetiva - Despesas Totais
+  const lucroLiquido = receitaEfetiva - despesasTotais
+  const margemLucro = receitaEfetiva > 0 ? Math.round((lucroLiquido / receitaEfetiva) * 100) : 0
+
+  return {
+    mrrPrevisto,
+    receitaEfetiva,
+    despesasTotais,
+    lucroLiquido,
+    margemLucro,
+    ativosCount,
+    valorPlano,
+  }
+}

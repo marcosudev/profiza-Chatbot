@@ -178,25 +178,47 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 12. RLS
-ALTER TABLE public.profissionais ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.clientes ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.leads ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.cobrancas ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.metricas_bot ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.leads_eventos ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.logs_eventos ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.configuracoes ENABLE ROW LEVEL SECURITY;
+-- 13. Tabela despesas
+CREATE TABLE IF NOT EXISTS public.despesas (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  descricao VARCHAR(150) NOT NULL,
+  categoria VARCHAR(60) NOT NULL CHECK (categoria IN (
+    'infraestrutura_software', 'marketing_vendas', 'impostos_taxas', 'operacional_pessoal', 'outros'
+  )),
+  valor DECIMAL(10,2) NOT NULL CHECK (valor > 0),
+  data_vencimento DATE NOT NULL,
+  data_pagamento DATE,
+  status VARCHAR(20) NOT NULL DEFAULT 'pendente' CHECK (status IN ('pendente', 'pago', 'cancelado')),
+  recorrente VARCHAR(20) NOT NULL DEFAULT 'mensal' CHECK (recorrente IN ('unica', 'mensal', 'anual')),
+  observacoes TEXT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
 
--- Políticas (acesso total para authenticated e service_role)
-CREATE POLICY "full_access" ON public.profissionais FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "full_access" ON public.clientes FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "full_access" ON public.leads FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "full_access" ON public.cobrancas FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "full_access" ON public.metricas_bot FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "full_access" ON public.leads_eventos FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "full_access" ON public.logs_eventos FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "full_access" ON public.configuracoes FOR ALL USING (true) WITH CHECK (true);
+-- 14. Tabela faturas
+CREATE TABLE IF NOT EXISTS public.faturas (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  profissional_id UUID NOT NULL REFERENCES public.profissionais(id) ON DELETE CASCADE,
+  mes_referencia VARCHAR(7) NOT NULL,
+  valor_plano DECIMAL(10,2) NOT NULL DEFAULT 49.90,
+  status VARCHAR(20) NOT NULL DEFAULT 'pendente' CHECK (status IN ('pendente', 'pago', 'atrasado', 'cancelado')),
+  vencimento_at DATE NOT NULL,
+  pago_em TIMESTAMPTZ,
+  pix_copia_cola TEXT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Triggers updated_at
+CREATE TRIGGER trg_despesas_updated_at BEFORE UPDATE ON public.despesas FOR EACH ROW EXECUTE FUNCTION public.fn_set_updated_at();
+CREATE TRIGGER trg_faturas_updated_at BEFORE UPDATE ON public.faturas FOR EACH ROW EXECUTE FUNCTION public.fn_set_updated_at();
+
+-- RLS
+ALTER TABLE public.despesas ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.faturas ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "full_access" ON public.despesas FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "full_access" ON public.faturas FOR ALL USING (true) WITH CHECK (true);
 
 -- ============================================================
 -- Pronto!
