@@ -428,6 +428,7 @@ export async function getDashboardSummary() {
 
   const sevenDaysFromNow = new Date()
   sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7)
+  const now = new Date()
 
   const [{ data: profs, error }, { count: leadsSemana }] = await Promise.all([
     supabase.from("profissionais").select("status, teste_gratis_expira_em"),
