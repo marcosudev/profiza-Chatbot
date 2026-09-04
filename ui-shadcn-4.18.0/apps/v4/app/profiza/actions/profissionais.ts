@@ -65,10 +65,15 @@ export async function actionClearAllData() {
 }
 
 export async function actionCreateDespesa(input: any) {
-  const { createDespesa } = await import("@/lib/supabase/queries")
-  const res = await createDespesa(input)
-  revalidatePath("/profiza/financas")
-  return res
+  try {
+    const { createDespesa } = await import("@/lib/supabase/queries")
+    const res = await createDespesa(input)
+    revalidatePath("/profiza/financas")
+    return { success: true, data: res }
+  } catch (err: any) {
+    console.error("[actionCreateDespesa] Error:", err)
+    return { success: false, error: err?.message || "Erro ao salvar despesa" }
+  }
 }
 
 export async function actionUpdateDespesaStatus(id: string, status: any) {

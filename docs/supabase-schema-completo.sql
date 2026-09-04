@@ -198,7 +198,7 @@ CREATE TABLE IF NOT EXISTS public.despesas (
 -- 14. Tabela faturas
 CREATE TABLE IF NOT EXISTS public.faturas (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  profissional_id UUID NOT NULL REFERENCES public.profissionais(id) ON DELETE CASCADE,
+  profissional_id TEXT NOT NULL REFERENCES public.profissionais(id) ON DELETE CASCADE,
   mes_referencia VARCHAR(7) NOT NULL,
   valor_plano DECIMAL(10,2) NOT NULL DEFAULT 49.90,
   status VARCHAR(20) NOT NULL DEFAULT 'pendente' CHECK (status IN ('pendente', 'pago', 'atrasado', 'cancelado')),

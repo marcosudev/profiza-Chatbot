@@ -78,7 +78,11 @@ export function FinancasClient({ summary, despesas, faturas }: Props) {
 
   const handleCreateDespesaSubmit = async (data: any) => {
     try {
-      await actionCreateDespesa(data)
+      const res = await actionCreateDespesa(data)
+      if (res && !res.success) {
+        toast.error(`Erro ao lançar despesa: ${res.error}`)
+        return
+      }
       toast.success("Despesa lançada com sucesso!")
       router.refresh()
     } catch {

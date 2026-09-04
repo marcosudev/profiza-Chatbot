@@ -507,6 +507,10 @@ export async function getDespesas(): Promise<Despesa[]> {
 
 export async function createDespesa(input: Omit<Despesa, "id">): Promise<Despesa> {
   const supabase = await createClient()
+  const dataPagamento = input.status === "pago"
+    ? (input.dataPagamento || input.dataVencimento || new Date().toISOString().split("T")[0])
+    : null
+
   const { data, error } = await supabase
     .from("despesas")
     .insert({
@@ -514,7 +518,7 @@ export async function createDespesa(input: Omit<Despesa, "id">): Promise<Despesa
       categoria: input.categoria,
       valor: input.valor,
       data_vencimento: input.dataVencimento,
-      data_pagamento: input.dataPagamento || null,
+      data_pagamento: dataPagamento,
       status: input.status,
       recorrente: input.recorrente,
       observacoes: input.observacoes || null,
@@ -522,7 +526,11 @@ export async function createDespesa(input: Omit<Despesa, "id">): Promise<Despesa
     .select()
     .single()
 
-  if (error) throw error
+  if (error) {
+    console.error("[createDespesa] Supabase error:", error)
+    throw new Error(error.message || "Erro ao inserir despesa no banco de dados.")
+  }
+
   return {
     id: data.id,
     descricao: data.descricao,
