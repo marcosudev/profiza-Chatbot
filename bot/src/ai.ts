@@ -1,30 +1,8 @@
 import OpenAI from "openai"
 import { config } from "./config"
+import { buscarCategoriasEBairrosAtivos } from "./supabase"
 
 const openai = new OpenAI({ apiKey: config.openai.apiKey })
-
-// Categorias e bairros válidos — espelham exatamente o banco
-const CATEGORIAS = [
-  "Eletricista",
-  "Encanador",
-  "Diarista",
-  "Pedreiro",
-  "Pintor",
-  "Limpeza",
-  "Montador",
-  "Arquiteto",
-]
-
-const BAIRROS = [
-  "Centro",
-  "Jardim Europa",
-  "Vila São José",
-  "Alto da Colina",
-  "Jardim das Flores",
-  "Parque São Paulo",
-  "Vila Nery",
-  "Bela Vista",
-]
 
 export interface Intencao {
   categoria: string | null
@@ -32,14 +10,18 @@ export interface Intencao {
   confianca: "alta" | "media" | "baixa"
 }
 
-const SYSTEM_PROMPT = `Você é um extrator de intenção para um serviço de profissionais em Bauru/SP.
+export async function extrairIntencao(mensagem: string): Promise<Intencao> {
+  try {
+    const { categorias, bairros } = await buscarCategoriasEBairrosAtivos()
+
+    const systemPrompt = `Você é um extrator de intenção para um serviço de profissionais em Bauru/SP.
 
 Dado o texto de um cliente, extraia:
 - categoria: o tipo de serviço solicitado
 - bairro: o bairro mencionado
 
-Categorias válidas: ${CATEGORIAS.join(", ")}
-Bairros válidos: ${BAIRROS.join(", ")}
+Categorias válidas: ${categorias.join(", ")}
+Bairros válidos: ${bairros.join(", ")}
 
 Regras:
 - Retorne APENAS JSON válido, sem markdown, sem explicação
@@ -52,12 +34,10 @@ Regras:
 Formato de resposta:
 {"categoria": "Eletricista", "bairro": "Centro", "confianca": "alta"}`
 
-export async function extrairIntencao(mensagem: string): Promise<Intencao> {
-  try {
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: systemPrompt },
         { role: "user", content: mensagem },
       ],
       temperature: 0,
@@ -70,14 +50,14 @@ export async function extrairIntencao(mensagem: string): Promise<Intencao> {
 
     const parsed = JSON.parse(content) as Intencao
 
-    // Valida que os valores retornados existem nas listas
-    const categoriaValida = CATEGORIAS.find(
+    // Valida que os valores retornados existem nas listas dinâmicas
+    const categoriaValida = categorias.find(
       (c) => c.toLowerCase() === parsed.categoria?.toLowerCase()
-    ) ?? null
+    ) ?? parsed.categoria ?? null
 
-    const bairroValido = BAIRROS.find(
+    const bairroValido = bairros.find(
       (b) => b.toLowerCase() === parsed.bairro?.toLowerCase()
-    ) ?? null
+    ) ?? parsed.bairro ?? null
 
     return {
       categoria: categoriaValida,

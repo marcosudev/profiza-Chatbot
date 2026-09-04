@@ -2,8 +2,15 @@ import type { Profissional } from "./supabase"
 
 export const mensagens = {
   // Profissional encontrado com match exato (categoria + bairro)
-  profissionalEncontrado(prof: Profissional, categoria: string, bairro: string): string {
+  profissionalEncontrado(prof: Profissional, categoria: string, bairro: string, templateCustomizado?: string): string {
     const bairros = prof.bairros.join(", ")
+    if (templateCustomizado) {
+      return templateCustomizado
+        .replace(/\{nome\}/g, prof.nome)
+        .replace(/\{categoria\}/g, categoria)
+        .replace(/\{bairros\}/g, bairros)
+        .replace(/\{whatsapp\}/g, prof.whatsapp)
+    }
     return [
       `Ótima notícia! Encontrei um profissional para você 🎉`,
       ``,
@@ -17,8 +24,15 @@ export const mensagens = {
   },
 
   // Profissional encontrado mas em bairro diferente (fallback)
-  profissionalFallback(prof: Profissional, categoria: string, bairroSolicitado: string): string {
+  profissionalFallback(prof: Profissional, categoria: string, bairroSolicitado: string, templateCustomizado?: string): string {
     const bairros = prof.bairros.join(", ")
+    if (templateCustomizado) {
+      return templateCustomizado
+        .replace(/\{nome\}/g, prof.nome)
+        .replace(/\{categoria\}/g, categoria)
+        .replace(/\{bairros\}/g, bairros)
+        .replace(/\{whatsapp\}/g, prof.whatsapp)
+    }
     return [
       `Encontrei um profissional de *${categoria}*, mas ele não atende ${bairroSolicitado} ainda.`,
       ``,
@@ -31,8 +45,13 @@ export const mensagens = {
   },
 
   // Nenhum profissional encontrado
-  semMatch(categoria: string, bairro: string | null): string {
+  semMatch(categoria: string, bairro: string | null, templateCustomizado?: string): string {
     const local = bairro ? ` em ${bairro}` : ""
+    if (templateCustomizado) {
+      return templateCustomizado
+        .replace(/\{categoria\}/g, categoria)
+        .replace(/\{local\}/g, local)
+    }
     return [
       `Ainda não temos um profissional de *${categoria}*${local} cadastrado. 😕`,
       ``,
@@ -43,19 +62,12 @@ export const mensagens = {
   },
 
   // Não entendeu a mensagem (sem categoria)
-  naoEntendeu(): string {
+  naoEntendeu(categoriasTexto?: string): string {
     return [
       `Olá! Sou o assistente do *Profiza* 👋`,
       ``,
       `Posso te ajudar a encontrar profissionais como:`,
-      `• Eletricista`,
-      `• Encanador`,
-      `• Diarista`,
-      `• Pedreiro`,
-      `• Pintor`,
-      `• Limpeza`,
-      `• Montador`,
-      `• Arquiteto`,
+      categoriasTexto || `• Eletricista\n• Encanador\n• Diarista\n• Pedreiro\n• Pintor\n• Limpeza\n• Montador\n• Arquiteto`,
       ``,
       `Me diga o que você precisa e em qual bairro de Bauru. Por exemplo:`,
       `_"Preciso de um eletricista no Centro"_`,
@@ -63,7 +75,10 @@ export const mensagens = {
   },
 
   // Categoria entendida mas bairro não informado
-  pedirBairro(categoria: string): string {
+  pedirBairro(categoria: string, templateCustomizado?: string): string {
+    if (templateCustomizado) {
+      return templateCustomizado.replace(/\{categoria\}/g, categoria)
+    }
     return [
       `Entendi, você precisa de um *${categoria}*! 👍`,
       ``,

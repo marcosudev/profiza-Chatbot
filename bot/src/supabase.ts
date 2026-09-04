@@ -16,6 +16,35 @@ export interface Profissional {
   status: string              // mapeado de status_pagamento
 }
 
+// Busca dinamicamente todas as categorias e bairros ativos no banco para a IA
+export async function buscarCategoriasEBairrosAtivos(): Promise<{ categorias: string[]; bairros: string[] }> {
+  const DEFAULT_CATS = ["Eletricista", "Encanador", "Diarista", "Pedreiro", "Pintor", "Limpeza", "Montador", "Arquiteto"]
+  const DEFAULT_BAIRROS = ["Centro", "Jardim Europa", "Vila São José", "Alto da Colina", "Jardim das Flores", "Parque São Paulo", "Vila Nery", "Bela Vista"]
+
+  try {
+    const { data } = await supabase
+      .from("profissionais")
+      .select("categoria, bairros")
+      .in("status", ["ativo", "teste_gratis"])
+
+    if (!data || data.length === 0) {
+      return { categorias: DEFAULT_CATS, bairros: DEFAULT_BAIRROS }
+    }
+
+    const catSet = new Set<string>(DEFAULT_CATS)
+    const bairroSet = new Set<string>(DEFAULT_BAIRROS)
+
+    data.forEach((row) => {
+      if (row.categoria) catSet.add(row.categoria)
+      if (Array.isArray(row.bairros)) row.bairros.forEach((b: string) => bairroSet.add(b))
+    })
+
+    return { categorias: Array.from(catSet), bairros: Array.from(bairroSet) }
+  } catch {
+    return { categorias: DEFAULT_CATS, bairros: DEFAULT_BAIRROS }
+  }
+}
+
 // Busca o melhor profissional ativo para categoria + bairro
 // Prioriza quem tem menos leads recentes (distribuição justa)
 export async function buscarProfissional(

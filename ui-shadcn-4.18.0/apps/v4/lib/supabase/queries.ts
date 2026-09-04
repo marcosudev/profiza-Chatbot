@@ -57,6 +57,17 @@ export async function createProfissional(
   input: Omit<Professional, "id" | "leadsSemana" | "ultimaAtividade">
 ) {
   const supabase = await createClient()
+
+  // Busca dias de teste grátis configurados pelo administrador
+  const { data: configData } = await supabase
+    .from("configuracoes")
+    .select("trial_days")
+    .eq("id", "singleton")
+    .single()
+
+  const trialDays = configData?.trial_days ?? 14
+  const expiraEm = new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000).toISOString()
+
   const { data, error } = await supabase
     .from("profissionais")
     .insert({
@@ -66,7 +77,7 @@ export async function createProfissional(
       bairros: input.bairros,
       status: input.status,
       email: input.email ?? null,
-      teste_gratis_expira_em: input.testeGratisExpiraEm,
+      teste_gratis_expira_em: expiraEm,
     })
     .select()
     .single()
@@ -253,6 +264,11 @@ export interface Configuracoes {
   notifTesteVencendo: boolean
   notifNovoLead: boolean
   notifSemResposta: boolean
+  maxProfissionaisLead: number
+  promptSistemaAi: string
+  msgProfissionalEncontrado: string
+  msgSemMatch: string
+  msgPedirBairro: string
 }
 
 export async function getConfiguracoes(): Promise<Configuracoes> {
@@ -270,6 +286,11 @@ export async function getConfiguracoes(): Promise<Configuracoes> {
     notifTesteVencendo: data?.notif_teste_vencendo ?? true,
     notifNovoLead: data?.notif_novo_lead ?? false,
     notifSemResposta: data?.notif_sem_resposta ?? true,
+    maxProfissionaisLead: data?.max_profissionais_lead ?? 1,
+    promptSistemaAi: data?.prompt_sistema_ai ?? "Você é um extrator de intenção amigável e direto para um serviço de indicação de profissionais em Bauru/SP.",
+    msgProfissionalEncontrado: data?.msg_profissional_encontrado ?? "Ótima notícia! Encontrei um profissional para você 🎉\n\n👷 *{nome}*\n🔧 {categoria}\n📍 Atende: {bairros}\n📱 {whatsapp}\n\nEntre em contato diretamente pelo WhatsApp!",
+    msgSemMatch: data?.msg_sem_match ?? "Ainda não temos um profissional de *{categoria}*{local} cadastrado. 😕\n\nVou registrar sua solicitação e assim que tivermos alguém disponível, te avisamos!",
+    msgPedirBairro: data?.msg_pedir_bairro ?? "Entendi, você precisa de um *{categoria}*! 👍\n\nEm qual bairro de Bauru você precisa do serviço?",
   }
 }
 
@@ -284,6 +305,11 @@ export async function updateConfiguracoes(input: Partial<Configuracoes>) {
       ...(input.notifTesteVencendo !== undefined && { notif_teste_vencendo: input.notifTesteVencendo }),
       ...(input.notifNovoLead !== undefined && { notif_novo_lead: input.notifNovoLead }),
       ...(input.notifSemResposta !== undefined && { notif_sem_resposta: input.notifSemResposta }),
+      ...(input.maxProfissionaisLead !== undefined && { max_profissionais_lead: input.maxProfissionaisLead }),
+      ...(input.promptSistemaAi !== undefined && { prompt_sistema_ai: input.promptSistemaAi }),
+      ...(input.msgProfissionalEncontrado !== undefined && { msg_profissional_encontrado: input.msgProfissionalEncontrado }),
+      ...(input.msgSemMatch !== undefined && { msg_sem_match: input.msgSemMatch }),
+      ...(input.msgPedirBairro !== undefined && { msg_pedir_bairro: input.msgPedirBairro }),
     })
     .eq("id", "singleton")
 
