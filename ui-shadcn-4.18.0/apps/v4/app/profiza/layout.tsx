@@ -2,7 +2,6 @@ import {
   getProfissionais,
   getLeads,
   getNotificacoes,
-  getRetencaoLeads,
 } from "@/lib/supabase/queries"
 import { Sidebar } from "@/components/profiza/sidebar"
 import { MobileNav } from "@/components/profiza/mobile-nav"
@@ -16,18 +15,17 @@ export default async function ProfizaLayout({
 }: {
   children: React.ReactNode
 }) {
-  const [profissionais, leads, notificacoes, retencao] = await Promise.all([
+  const [profissionais, leads, notificacoes] = await Promise.all([
     getProfissionais(),
     getLeads(),
     getNotificacoes(),
-    getRetencaoLeads(),
   ])
 
   return (
     <AuthSessionGuard deployVersion={deployVersion}>
       <div className="min-h-screen-mobile bg-background text-foreground">
         <div className="flex min-h-screen-mobile">
-          <Sidebar retencao={retencao} />
+          <Sidebar />
           <main className="flex-1 pb-mobile-nav md:pb-0">
             <LayoutDataProvider
               profissionais={profissionais}

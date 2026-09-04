@@ -155,15 +155,6 @@ Este documento analisa **cada elemento, botão, página e funcionalidade** espec
 
 ---
 
-### 4.2 Card "Status do mês" na sidebar
-
-| Item | PRD | Implementação Atual | Gap |
-|---|---|---|---|
-| Valor dinâmico | Não especificado | ❌ Hardcoded "87%" | **BAIXO** |
-| Cálculo real | Não especificado | ❌ Não calculado | **BAIXO** |
-
----
-
 ## 5. Análise do Header — Botões e Elementos
 
 | Elemento | Funciona? | Ação atual | Gap |

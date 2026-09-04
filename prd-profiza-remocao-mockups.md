@@ -72,25 +72,6 @@ const mockNotifications: Notification[] = [
 
 ---
 
-### 2.3 `components/profiza/sidebar.tsx` — MÉDIO
-
-**Problema:** Card "Status do mês" com valor hardcoded:
-
-```tsx
-<p className="font-display text-3xl font-bold text-sidebar-foreground">
-  87%
-</p>
-<p className="mt-1 text-sm text-sidebar-foreground/60">
-  Taxa de retenção de leads
-</p>
-```
-
-**Impacto:** O número 87% nunca muda. Não reflete a realidade operacional.
-
-**Correção:** Calcular a taxa real: `leads convertidos / total de leads` usando dados do banco. A sidebar precisa receber esse valor como prop do layout.
-
----
-
 ### 2.4 `components/profiza/professional-drawer.tsx` — MÉDIO
 
 **Problema:** Seção "Métricas" usa `professional.leadsSemana` (campo estático da tabela `profissionais`):
@@ -321,8 +302,6 @@ export interface NotificacaoCalculada {
 
 export async function getNotificacoes(): Promise<NotificacaoCalculada[]>
 
-// Métricas de retenção para sidebar
-export async function getRetencaoLeads(): Promise<number> // % convertidos/total
 ```
 
 **4.3 — Adicionar em `app/profiza/actions/profissionais.ts`:**
@@ -350,12 +329,7 @@ export async function actionSaveConfiguracoes(data: Partial<Configuracoes>): Pro
 - O `Header` recebe e passa as notificações
 - O layout busca `getNotificacoes()` e passa para o Header
 
-**4.6 — `sidebar.tsx`**
-
-- Adicionar prop `retencao: number`
-- O layout busca `getRetencaoLeads()` e passa para a Sidebar
-
-**4.7 — `professional-drawer.tsx`**
+**4.6 — `professional-drawer.tsx`**
 
 - Adicionar prop opcional `leadsTotal?: number`
 - Quando presente, exibir no lugar de `leadsSemana`
@@ -396,14 +370,13 @@ export async function actionSaveConfiguracoes(data: Partial<Configuracoes>): Pro
 
 ### Fase 4 — Layout (orquestração)
 
-**4.13 — `app/profiza/layout.tsx`**
+**4.12 — `app/profiza/layout.tsx`**
 
 O layout é o ponto central que busca dados compartilhados entre todas as páginas e os distribui para Sidebar, Header e GlobalSearch. Atualmente não faz nenhuma busca de dados.
 
 ```ts
 // Buscar em paralelo no layout:
-const [retencao, notificacoes, profissionais, leads] = await Promise.all([
-  getRetencaoLeads(),
+const [notificacoes, profissionais, leads] = await Promise.all([
   getNotificacoes(),
   getProfissionais(),   // para o GlobalSearch
   getLeads(),           // para o GlobalSearch
@@ -411,7 +384,6 @@ const [retencao, notificacoes, profissionais, leads] = await Promise.all([
 ```
 
 Passar para:
-- `<Sidebar retencao={retencao} />`
 - `<Header notificacoes={notificacoes} professionals={profissionais} leads={leads} />`
 
 ---
@@ -457,12 +429,11 @@ insert into configuracoes (id) values ('singleton') on conflict do nothing;
 | Arquivo | Mudança | Tipo |
 |---|---|---|
 | `docs/supabase-configuracoes.sql` | Criar | Novo arquivo SQL |
-| `lib/supabase/queries.ts` | Adicionar `getConfiguracoes`, `updateConfiguracoes`, `getNotificacoes`, `getRetencaoLeads` | Adição |
+| `lib/supabase/queries.ts` | Adicionar `getConfiguracoes`, `updateConfiguracoes`, `getNotificacoes` | Adição |
 | `app/profiza/actions/profissionais.ts` | Adicionar `actionUpdateLeadStatus`, `actionSaveConfiguracoes` | Adição |
 | `app/profiza/layout.tsx` | Buscar dados compartilhados e passar para Sidebar/Header | Modificação |
 | `app/profiza/profissionais/page.tsx` | Adicionar `getMetricasMap()` em paralelo | Modificação |
 | `app/profiza/configuracao/page.tsx` | Adicionar `getConfiguracoes()` | Modificação |
-| `components/profiza/sidebar.tsx` | Receber `retencao: number` como prop | Modificação |
 | `components/profiza/header.tsx` | Receber `notificacoes`, `professionals`, `leads` e passar para filhos | Modificação |
 | `components/profiza/global-search.tsx` | Remover dados hardcoded, receber props | Modificação |
 | `components/profiza/notifications-dropdown.tsx` | Remover mock, receber props | Modificação |
@@ -478,7 +449,7 @@ insert into configuracoes (id) values ('singleton') on conflict do nothing;
 ## 7. Ordem de execução recomendada
 
 1. Rodar `supabase-configuracoes.sql` no Supabase SQL Editor
-2. Adicionar queries em `queries.ts` (getConfiguracoes, getNotificacoes, getRetencaoLeads)
+2. Adicionar queries em `queries.ts` (getConfiguracoes, getNotificacoes)
 3. Adicionar actions em `actions/profissionais.ts`
 4. Atualizar `lib/profiza-data.ts` (remover mocks)
 5. Atualizar `configuracao/page.tsx` + `configuracao-client.tsx`

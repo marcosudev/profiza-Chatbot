@@ -404,21 +404,6 @@ export async function getNotificacoes(): Promise<NotificacaoCalculada[]> {
   return notifs
 }
 
-// ============================================================
-// Métricas de retenção para sidebar
-// ============================================================
-
-export async function getRetencaoLeads(): Promise<number> {
-  const supabase = await createClient()
-  const { data } = await supabase
-    .from("leads")
-    .select("status")
-
-  if (!data || data.length === 0) return 0
-  const convertidos = data.filter((l) => l.status === "convertido").length
-  return Math.round((convertidos / data.length) * 100)
-}
-
 export async function getDashboardSummary() {
   const supabase = await createClient()
 

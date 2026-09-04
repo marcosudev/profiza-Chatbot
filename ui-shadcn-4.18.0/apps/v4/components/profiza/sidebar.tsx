@@ -23,7 +23,7 @@ const navItems = [
   { label: "Configuração", icon: Settings, href: "/profiza/configuracao" },
 ]
 
-export function Sidebar({ retencao }: { retencao: number }) {
+export function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
 
@@ -77,22 +77,6 @@ export function Sidebar({ retencao }: { retencao: number }) {
           )
         })}
       </nav>
-
-      {/* Card de status */}
-      <Link
-        href="/profiza/leads"
-        className="mt-auto block rounded-2xl border border-sidebar-border bg-sidebar-accent p-4 transition-colors hover:border-sidebar-primary/50"
-      >
-        <p className="mb-2 text-xs uppercase tracking-[0.2em] text-sidebar-primary">
-          Status do mês
-        </p>
-        <p className="font-display text-3xl font-bold text-sidebar-foreground">
-          {retencao}%
-        </p>
-        <p className="mt-1 text-sm text-sidebar-foreground/60">
-          Taxa de conversão de leads
-        </p>
-      </Link>
 
       {/* Logout */}
       <button

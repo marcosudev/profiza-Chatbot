@@ -28,7 +28,6 @@ Este documento analisa TODOS os elementos interativos do sistema Profiza, identi
 | Leads | Link | ✅ | Navega para `/profiza/leads` | — |
 | Cobrança | Link | ✅ | Navega para `/profiza/cobranca` | — |
 | Configuração | Link | ✅ | Navega para `/profiza/configuracao` | — |
-| Card "Status do mês 87%" | Clicável | ❌ | Nenhuma | Navegar para `/profiza/leads` ou abrir modal de detalhes |
 
 ---
 
@@ -229,8 +228,7 @@ Este documento analisa TODOS os elementos interativos do sistema Profiza, identi
 6. **Logo clicável** - Sidebar
    - Navegar para Dashboard
 
-7. **Card Status do mês clicável** - Sidebar
-   - Navegar para métricas
+7. **Nome do profissional clicável** - Tabelas
 
 8. **Nome do profissional clicável** - Tabelas
    - Abrir drawer/modal com perfil completo
@@ -352,7 +350,6 @@ Implementar: useMemo com filtro por data
 
 ### Fase 2: Navegação Aprimorada
 - [x] Logo clicável na Sidebar
-- [x] Card "Status do mês" clicável
 - [x] ProfessionalDrawer para perfil completo
 - [x] KPIs clicáveis em Leads e Cobrança
 - [x] Bairros clicáveis como filtro
