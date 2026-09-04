@@ -38,9 +38,10 @@ import { toast } from "sonner"
 interface Props {
   initialProfessionals: Professional[]
   metricasMap: Record<string, number>
+  subscriptionPrice: number
 }
 
-export function CobrancaClient({ initialProfessionals, metricasMap }: Props) {
+export function CobrancaClient({ initialProfessionals, metricasMap, subscriptionPrice }: Props) {
   const [professionals, setProfessionals] = React.useState(initialProfessionals)
   const [viewingProfessional, setViewingProfessional] = React.useState<Professional | null>(null)
   const urgentRef = React.useRef<HTMLDivElement>(null)
@@ -51,9 +52,10 @@ export function CobrancaClient({ initialProfessionals, metricasMap }: Props) {
 
   const vencendoEmBreve = testeGratis.filter((p) => {
     const expires = new Date(p.testeGratisExpiraEm)
-    const limit = new Date()
+    const now = new Date()
+    const limit = new Date(now)
     limit.setDate(limit.getDate() + 7)
-    return expires <= limit
+    return expires >= now && expires <= limit
   })
 
   const conversao = ativos.length + testeGratis.length > 0
@@ -94,7 +96,7 @@ export function CobrancaClient({ initialProfessionals, metricasMap }: Props) {
               </CardHeader>
               <CardContent className="p-3 pt-0 md:p-6 md:pt-0">
                 <p className="font-display text-lg font-bold text-foreground md:text-3xl">
-                  R$ {(ativos.length * 49.9).toFixed(2).replace(".", ",")}
+                  R$ {(ativos.length * subscriptionPrice).toFixed(2).replace(".", ",")}
                 </p>
                 <p className="flex items-center gap-1 text-xs text-primary md:text-sm">
                   <TrendingUp className="h-3 w-3" />{ativos.length} ativos
@@ -112,7 +114,7 @@ export function CobrancaClient({ initialProfessionals, metricasMap }: Props) {
               <CardContent className="p-3 pt-0 md:p-6 md:pt-0">
                 <p className="font-display text-2xl font-bold text-foreground md:text-3xl">{testeGratis.length}</p>
                 <p className="text-xs text-muted-foreground md:text-sm">
-                  R$ {(testeGratis.length * 49.9).toFixed(2).replace(".", ",")} potencial
+                  R$ {(testeGratis.length * subscriptionPrice).toFixed(2).replace(".", ",")} potencial
                 </p>
               </CardContent>
             </Card>

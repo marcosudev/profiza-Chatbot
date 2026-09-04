@@ -35,6 +35,8 @@ export async function actionUpdateStatus(id: string, status: PaymentStatus) {
   await updateStatus(id, status)
   revalidatePath("/profiza/profissionais")
   revalidatePath("/profiza")
+  revalidatePath("/profiza/cobranca")
+  revalidatePath("/profiza/financas")
 }
 
 export async function actionDeleteProfissional(id: string) {
@@ -51,6 +53,8 @@ export async function actionUpdateLeadStatus(id: string, status: LeadStatus) {
 export async function actionSaveConfiguracoes(data: Partial<Configuracoes>) {
   await updateConfiguracoes(data)
   revalidatePath("/profiza/configuracao")
+  revalidatePath("/profiza/cobranca")
+  revalidatePath("/profiza/financas")
 }
 
 export async function actionClearAllData() {

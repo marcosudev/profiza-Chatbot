@@ -200,7 +200,7 @@ CREATE TABLE IF NOT EXISTS public.faturas (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   profissional_id TEXT NOT NULL REFERENCES public.profissionais(id) ON DELETE CASCADE,
   mes_referencia VARCHAR(7) NOT NULL,
-  valor_plano DECIMAL(10,2) NOT NULL DEFAULT 49.90,
+  valor_plano DECIMAL(10,2) NOT NULL DEFAULT 29.90,
   status VARCHAR(20) NOT NULL DEFAULT 'pendente' CHECK (status IN ('pendente', 'pago', 'atrasado', 'cancelado')),
   vencimento_at DATE NOT NULL,
   pago_em TIMESTAMPTZ,

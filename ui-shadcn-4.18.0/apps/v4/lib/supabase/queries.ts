@@ -65,7 +65,7 @@ export async function createProfissional(
     .eq("id", "singleton")
     .single()
 
-  const trialDays = configData?.trial_days ?? 14
+  const trialDays = configData?.trial_days ?? 30
   const expiraEm = new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000).toISOString()
 
   const { data, error } = await supabase
@@ -281,8 +281,8 @@ export async function getConfiguracoes(): Promise<Configuracoes> {
 
   return {
     cidade: data?.cidade ?? "Bauru - SP",
-    trialDays: data?.trial_days ?? 14,
-    subscriptionPrice: data?.subscription_price ?? 49.9,
+    trialDays: data?.trial_days ?? 30,
+    subscriptionPrice: data?.subscription_price ?? 29.9,
     notifTesteVencendo: data?.notif_teste_vencendo ?? true,
     notifNovoLead: data?.notif_novo_lead ?? false,
     notifSemResposta: data?.notif_sem_resposta ?? true,
@@ -335,6 +335,7 @@ export async function getNotificacoes(): Promise<NotificacaoCalculada[]> {
 
   const sevenDaysFromNow = new Date()
   sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7)
+  const now = new Date()
 
   const ontem = new Date()
   ontem.setDate(ontem.getDate() - 1)
@@ -344,6 +345,7 @@ export async function getNotificacoes(): Promise<NotificacaoCalculada[]> {
       .from("profissionais")
       .select("id, nome, teste_gratis_expira_em")
       .eq("status", "teste_gratis")
+      .gte("teste_gratis_expira_em", now.toISOString())
       .lte("teste_gratis_expira_em", sevenDaysFromNow.toISOString())
       .order("teste_gratis_expira_em", { ascending: true })
       .limit(5),
@@ -443,7 +445,8 @@ export async function getDashboardSummary() {
     leadsSemana: leadsSemana ?? 0,
     vencendoSeteDias: list.filter((r) => {
       if (r.status !== "teste_gratis" || !r.teste_gratis_expira_em) return false
-      return new Date(r.teste_gratis_expira_em) <= sevenDaysFromNow
+      const expires = new Date(r.teste_gratis_expira_em)
+      return expires >= now && expires <= sevenDaysFromNow
     }).length,
   }
 }

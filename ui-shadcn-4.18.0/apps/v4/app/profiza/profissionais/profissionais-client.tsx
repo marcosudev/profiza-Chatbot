@@ -181,7 +181,7 @@ export function ProfissionaisClient({ initialProfessionals, metricasMap }: Props
         categoria: data.categoria,
         bairros: data.bairros,
         status: "teste_gratis",
-        testeGratisExpiraEm: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+        testeGratisExpiraEm: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       })
       setRows((current) => [novo, ...current])
       setCreateOpen(false)

@@ -478,7 +478,7 @@ Estados vazios (nenhum profissional cadastrado, busca sem resultado) e estados d
 1. Acessa `/login` → informa e-mail/senha → Supabase Auth valida → sessão persistida → redireciona ao dashboard.
 
 **Cadastro de novo profissional**
-1. Clica em "Novo profissional" → `Dialog` abre com formulário vazio → preenche campos → validação Zod em tempo real → submissão → `status_pagamento` padrão `teste_gratis` e `teste_gratis_expira_em` calculado automaticamente (ex.: `now() + 14 dias`) → Toast de sucesso → tabela atualizada sem reload.
+1. Clica em "Novo profissional" → `Dialog` abre com formulário vazio → preenche campos → validação Zod em tempo real → submissão → `status_pagamento` padrão `teste_gratis` e `teste_gratis_expira_em` calculado automaticamente (ex.: `now() + 30 dias`) → Toast de sucesso → tabela atualizada sem reload.
 
 **Conversão de teste grátis para pago**
 1. Card "Testes vencendo em 7 dias" no dashboard sinaliza o profissional → administrador contata via WhatsApp → recebe pagamento → altera `status_pagamento` para `ativo` diretamente na linha da tabela (RF-05) → `ativo_desde` preenchido → Toast de confirmação.

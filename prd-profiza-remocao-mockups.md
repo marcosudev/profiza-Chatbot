@@ -184,7 +184,7 @@ const handleSave = () => {
 ```tsx
 <Select defaultValue="bauru">...</Select>
 <Input id="trial-days" type="number" defaultValue="14" />
-<Input id="price" type="number" step="0.01" defaultValue="49.90" />
+<Input id="price" type="number" step="0.01" defaultValue="29.90" />
 ```
 
 **Problema 3:** Switches de notificações não persistem:
@@ -266,8 +266,8 @@ export const dashboardSummary = {
 create table if not exists configuracoes (
   id                    text primary key default 'singleton',
   cidade                text not null default 'Bauru - SP',
-  trial_days            int not null default 14,
-  subscription_price    numeric(10,2) not null default 49.90,
+  trial_days            int not null default 30,
+  subscription_price    numeric(10,2) not null default 29.90,
   notif_teste_vencendo  boolean not null default true,
   notif_novo_lead       boolean not null default false,
   notif_sem_resposta    boolean not null default true,
@@ -426,8 +426,8 @@ Apenas **uma** nova tabela é necessária (`configuracoes`). Todas as outras cor
 create table if not exists configuracoes (
   id                    text primary key default 'singleton',
   cidade                text not null default 'Bauru - SP',
-  trial_days            int not null default 14,
-  subscription_price    numeric(10,2) not null default 49.90,
+  trial_days            int not null default 30,
+  subscription_price    numeric(10,2) not null default 29.90,
   notif_teste_vencendo  boolean not null default true,
   notif_novo_lead       boolean not null default false,
   notif_sem_resposta    boolean not null default true,

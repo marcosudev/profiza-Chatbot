@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS public.faturas (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   profissional_id TEXT NOT NULL REFERENCES public.profissionais(id) ON DELETE CASCADE,
   mes_referencia VARCHAR(7) NOT NULL,
-  valor_plano DECIMAL(10,2) NOT NULL DEFAULT 49.90,
+  valor_plano DECIMAL(10,2) NOT NULL DEFAULT 29.90,
   status VARCHAR(20) NOT NULL DEFAULT 'pendente' CHECK (status IN ('pendente', 'pago', 'atrasado', 'cancelado')),
   vencimento_at DATE NOT NULL,
   pago_em TIMESTAMPTZ,
@@ -42,5 +42,8 @@ CREATE POLICY "full_access" ON public.despesas FOR ALL USING (true) WITH CHECK (
 
 DROP POLICY IF EXISTS "full_access" ON public.faturas;
 CREATE POLICY "full_access" ON public.faturas FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE public.faturas
+  ALTER COLUMN valor_plano SET DEFAULT 29.90;
 
 SELECT 'Tabelas financeiras (despesas e faturas) criadas com sucesso no Supabase!' AS status;

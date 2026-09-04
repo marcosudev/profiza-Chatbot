@@ -148,7 +148,7 @@ export function DashboardClient({ initialProfessionals, initialSummary }: Props)
         categoria: data.categoria,
         bairros: data.bairros,
         status: "teste_gratis",
-        testeGratisExpiraEm: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+        testeGratisExpiraEm: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       })
       setRows((current) => [novo, ...current])
       setSummary((s) => ({ ...s, testeGratis: s.testeGratis + 1 }))

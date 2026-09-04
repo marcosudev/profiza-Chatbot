@@ -1,10 +1,17 @@
-import { getProfissionais, getMetricasMap } from "@/lib/supabase/queries"
+import { getConfiguracoes, getMetricasMap, getProfissionais } from "@/lib/supabase/queries"
 import { CobrancaClient } from "./cobranca-client"
 
 export default async function CobrancaPage() {
-  const [professionals, metricasMap] = await Promise.all([
+  const [professionals, metricasMap, configuracoes] = await Promise.all([
     getProfissionais(),
     getMetricasMap(),
+    getConfiguracoes(),
   ])
-  return <CobrancaClient initialProfessionals={professionals} metricasMap={metricasMap} />
+  return (
+    <CobrancaClient
+      initialProfessionals={professionals}
+      metricasMap={metricasMap}
+      subscriptionPrice={configuracoes.subscriptionPrice}
+    />
+  )
 }
