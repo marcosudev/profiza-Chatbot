@@ -44,7 +44,6 @@ export function AuthSessionGuard({ children, deployVersion }: Props) {
       return
     }
 
-    void createClient().auth.signOut()
     router.replace(`/login?next=${encodeURIComponent(pathname)}`)
   }, [deployVersion, pathname, router])
 

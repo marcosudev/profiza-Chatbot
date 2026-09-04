@@ -6,7 +6,6 @@ import { DOCS_SIDEBAR_SCROLL_RESTORE_SCRIPT } from "@/lib/docs-sidebar-scroll"
 import { fontVariables } from "@/lib/fonts"
 import { cn } from "@/lib/utils"
 import { ActiveThemeProvider } from "@/components/active-theme"
-import { Analytics } from "@/components/analytics"
 import { TailwindIndicator } from "@/components/tailwind-indicator"
 import { ThemeProvider } from "@/components/theme-provider"
 import { TooltipProvider as BaseTooltipProvider } from "@/registry/bases/base/ui/tooltip"
@@ -122,7 +121,6 @@ export default function RootLayout({
               </BaseTooltipProvider>
             </NuqsAdapter>
             <TailwindIndicator />
-            <Analytics />
           </ActiveThemeProvider>
         </ThemeProvider>
       </body>
