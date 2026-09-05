@@ -2,6 +2,8 @@
 
 Serviço Node.js que recebe mensagens do WhatsApp via Z-API, extrai a intenção do cliente com OpenAI e roteia o lead para o profissional correto no Supabase.
 
+> Atualização de teste para validar o fluxo de alterações pelo GitHub Desktop.
+
 ## Arquitetura
 
 ```
