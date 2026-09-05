@@ -2,46 +2,36 @@ import type { Profissional } from "./supabase"
 
 export const mensagens = {
   // Profissional encontrado com match exato (categoria + bairro)
-  profissionalEncontrado(prof: Profissional, categoria: string, bairro: string, templateCustomizado?: string): string {
-    const bairros = prof.bairros.join(", ")
-    if (templateCustomizado) {
-      return templateCustomizado
-        .replace(/\{nome\}/g, prof.nome)
-        .replace(/\{categoria\}/g, categoria)
-        .replace(/\{bairros\}/g, bairros)
-        .replace(/\{whatsapp\}/g, prof.whatsapp)
-    }
-    return [
-      `Ótima notícia! Encontrei um profissional para você 🎉`,
-      ``,
-      `👷 *${prof.nome}*`,
-      `🔧 ${categoria}`,
-      `📍 Atende: ${bairros}`,
-      `📱 ${prof.whatsapp}`,
-      ``,
-      `Entre em contato diretamente pelo WhatsApp e mencione que veio pelo Profiza!`,
-    ].join("\n")
+  profissionalEncontrado(profs: Profissional[], categoria: string, bairro: string): string {
+    const header = `Ótima notícia! Encontrei opções de profissionais para você 🎉\n`
+
+    const lista = profs.map(prof => {
+      const bairros = prof.bairros.join(", ")
+      return [
+        `👷 *${prof.nome}*`,
+        `🔧 ${categoria}`,
+        `📍 Atende: ${bairros}`,
+        `📱 ${prof.whatsapp}`
+      ].join("\n")
+    }).join("\n\n")
+
+    return `${header}\n${lista}\n\nEntre em contato diretamente pelo WhatsApp e mencione que veio pelo Profiza! Se precisar de mais contatos, é só pedir!`
   },
 
   // Profissional encontrado mas em bairro diferente (fallback)
-  profissionalFallback(prof: Profissional, categoria: string, bairroSolicitado: string, templateCustomizado?: string): string {
-    const bairros = prof.bairros.join(", ")
-    if (templateCustomizado) {
-      return templateCustomizado
-        .replace(/\{nome\}/g, prof.nome)
-        .replace(/\{categoria\}/g, categoria)
-        .replace(/\{bairros\}/g, bairros)
-        .replace(/\{whatsapp\}/g, prof.whatsapp)
-    }
-    return [
-      `Encontrei um profissional de *${categoria}*, mas ele não atende ${bairroSolicitado} ainda.`,
-      ``,
-      `👷 *${prof.nome}*`,
-      `📍 Atende: ${bairros}`,
-      `📱 ${prof.whatsapp}`,
-      ``,
-      `Vale perguntar se ele consegue atender sua região! 😊`,
-    ].join("\n")
+  profissionalFallback(profs: Profissional[], categoria: string, bairroSolicitado: string): string {
+    const header = `Encontrei profissionais de *${categoria}*, mas talvez não atendam ${bairroSolicitado} ainda.\n`
+
+    const lista = profs.map(prof => {
+      const bairros = prof.bairros.join(", ")
+      return [
+        `👷 *${prof.nome}*`,
+        `📍 Atende: ${bairros}`,
+        `📱 ${prof.whatsapp}`
+      ].join("\n")
+    }).join("\n\n")
+
+    return `${header}\n${lista}\n\nVale perguntar se eles conseguem atender sua região! 😊 Se precisar de mais contatos, é só pedir!`
   },
 
   // Nenhum profissional encontrado
@@ -67,10 +57,10 @@ export const mensagens = {
       `Olá! Sou o assistente do *Profiza* 👋`,
       ``,
       `Posso te ajudar a encontrar profissionais como:`,
-      categoriasTexto || `• Eletricista\n• Encanador\n• Diarista\n• Pedreiro\n• Pintor\n• Limpeza\n• Montador\n• Arquiteto`,
+      categoriasTexto || `• Eletricista\n• Encanador\n• Pedreiro\n• Pintor\n• Borracheiro\n• Mecânico\n• Jardinagem\n• Montador de Móveis\n• Ar-condicionado\n• Informática\n• Serralheiro\n• e muitos outros...`,
       ``,
       `Me diga o que você precisa e em qual bairro de Bauru. Por exemplo:`,
-      `_"Preciso de um eletricista no Centro"_`,
+      `_"Preciso de um eletricista no Centro"_ ou _"Meu chuveiro queimou"_.`,
     ].join("\n")
   },
 

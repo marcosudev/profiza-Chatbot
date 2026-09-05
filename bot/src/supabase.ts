@@ -18,7 +18,13 @@ export interface Profissional {
 
 // Busca dinamicamente todas as categorias e bairros ativos no banco para a IA
 export async function buscarCategoriasEBairrosAtivos(): Promise<{ categorias: string[]; bairros: string[] }> {
-  const DEFAULT_CATS = ["Eletricista", "Encanador", "Diarista", "Pedreiro", "Pintor", "Limpeza", "Montador", "Arquiteto"]
+  const DEFAULT_CATS = [
+    "Eletricista", "Encanador", "Diarista", "Pedreiro", "Pintor", "Limpeza",
+    "Montador de Móveis", "Arquiteto", "Borracheiro", "Mecânico", "Jardineiro",
+    "Marceneiro", "Técnico de Ar-condicionado", "Técnico de Informática",
+    "Serralheiro", "Gesseiro", "Chaveiro", "Vidraceiro", "Desentupidor",
+    "Frete e Mudança", "Tapeceiro", "Calheiro", "Bombeiro Hidráulico"
+  ]
   const DEFAULT_BAIRROS = ["Centro", "Jardim Europa", "Vila São José", "Alto da Colina", "Jardim das Flores", "Parque São Paulo", "Vila Nery", "Bela Vista"]
 
   try {
@@ -45,39 +51,95 @@ export async function buscarCategoriasEBairrosAtivos(): Promise<{ categorias: st
   }
 }
 
-// Busca o melhor profissional ativo para categoria + bairro
-// Prioriza quem tem menos leads recentes (distribuição justa)
-export async function buscarProfissional(
+export async function buscarProfissionaisJaEnviados(
+  whatsappCliente: string,
+  categoria: string
+): Promise<string[]> {
+  const { data } = await supabase
+    .from("leads")
+    .select("profissional_id")
+    .eq("whatsapp_cliente", whatsappCliente)
+    .ilike("categoria", categoria)
+    .not("profissional_id", "is", null)
+
+  if (!data) return []
+  return data.map((d: any) => d.profissional_id)
+}
+
+// Busca profissionais ativos para categoria + bairro
+// Prioriza quem tem data_ultimo_lead mais antiga (distribuição justa)
+export async function buscarProfissionais(
   categoria: string,
-  bairro: string
-): Promise<Profissional | null> {
-  const { data, error } = await supabase
+  bairro: string,
+  ignoreIds: string[] = [],
+  limit: number = 4
+): Promise<Profissional[]> {
+  let query = supabase
     .from("profissionais")
-    .select("id, nome, whatsapp, categoria, bairros, status")
+    .select("id, nome, whatsapp, categoria, bairros, status, metricas_bot!inner(data_ultimo_lead)")
     .in("status", ["ativo", "teste_gratis"])
     .ilike("categoria", categoria)
     .contains("bairros", [bairro])
-    .limit(1)
-    .single()
 
-  if (error || !data) return null
-  return data as Profissional
+  if (ignoreIds.length > 0) {
+    query = query.not("id", "in", `(${ignoreIds.join(",")})`)
+  }
+
+  const { data, error } = await query
+
+  if (error || !data) return []
+
+  // Ordena no JS por garantia, os mais antigos primeiro (nulls = mais antigos ainda)
+  const sorted = data.sort((a: any, b: any) => {
+    const timeA = a.metricas_bot?.data_ultimo_lead ? new Date(a.metricas_bot.data_ultimo_lead).getTime() : 0
+    const timeB = b.metricas_bot?.data_ultimo_lead ? new Date(b.metricas_bot.data_ultimo_lead).getTime() : 0
+    return timeA - timeB
+  })
+
+  return sorted.slice(0, limit).map((d: any) => ({
+    id: d.id,
+    nome: d.nome,
+    whatsapp: d.whatsapp,
+    categoria: d.categoria,
+    bairros: d.bairros,
+    status: d.status
+  }))
 }
 
 // Busca profissional com match parcial de bairro (fallback)
-export async function buscarProfissionalFallback(
-  categoria: string
-): Promise<Profissional | null> {
-  const { data, error } = await supabase
+export async function buscarProfissionaisFallback(
+  categoria: string,
+  ignoreIds: string[] = [],
+  limit: number = 4
+): Promise<Profissional[]> {
+  let query = supabase
     .from("profissionais")
-    .select("id, nome, whatsapp, categoria, bairros, status")
+    .select("id, nome, whatsapp, categoria, bairros, status, metricas_bot!inner(data_ultimo_lead)")
     .in("status", ["ativo", "teste_gratis"])
     .ilike("categoria", categoria)
-    .limit(1)
-    .single()
 
-  if (error || !data) return null
-  return data as Profissional
+  if (ignoreIds.length > 0) {
+    query = query.not("id", "in", `(${ignoreIds.join(",")})`)
+  }
+
+  const { data, error } = await query
+
+  if (error || !data) return []
+
+  const sorted = data.sort((a: any, b: any) => {
+    const timeA = a.metricas_bot?.data_ultimo_lead ? new Date(a.metricas_bot.data_ultimo_lead).getTime() : 0
+    const timeB = b.metricas_bot?.data_ultimo_lead ? new Date(b.metricas_bot.data_ultimo_lead).getTime() : 0
+    return timeA - timeB
+  })
+
+  return sorted.slice(0, limit).map((d: any) => ({
+    id: d.id,
+    nome: d.nome,
+    whatsapp: d.whatsapp,
+    categoria: d.categoria,
+    bairros: d.bairros,
+    status: d.status
+  }))
 }
 
 export interface SalvarLeadInput {
@@ -153,20 +215,16 @@ export async function atualizarStatusEntrega(
     .eq("id", leadId)
 }
 
-// Confirma entrega e cria cobrança (idempotente)
+// Confirma entrega (sem cobrança por lead no novo modelo de mensalidade)
 export async function confirmarEntregaECobrar(leadId: string): Promise<boolean> {
-  // Busca lead com dados atuais
   const { data: lead } = await supabase
     .from("leads")
-    .select("id, profissional_id, status, cobrado, valor")
+    .select("id, status")
     .eq("id", leadId)
     .single()
 
   if (!lead) return false
-  if (lead.cobrado) return true // já cobrado, idempotente
-  if (lead.status === "falhou" || lead.status === "cancelado") return false
-
-  const valor = lead.valor ?? 10.00 // valor padrão R$10
+  if (lead.status === "entrega_confirmada" || lead.status === "falhou" || lead.status === "cancelado") return false
 
   // Atualiza lead para entrega_confirmada
   await supabase
@@ -177,45 +235,7 @@ export async function confirmarEntregaECobrar(leadId: string): Promise<boolean> 
     })
     .eq("id", leadId)
 
-  // Cria cobrança
-  const { data: cobranca, error } = await supabase
-    .from("cobrancas")
-    .insert({
-      lead_id: leadId,
-      profissional_id: lead.profissional_id,
-      valor,
-      status: "pendente",
-    })
-    .select("id")
-    .single()
-
-  if (error) {
-    // Se erro de unique constraint, já existe cobrança
-    if (error.code === "23505") return true
-    console.error("[supabase] Erro ao criar cobrança:", error.message)
-    return false
-  }
-
-  // Atualiza lead com cobrança_id e marca como cobrado
-  await supabase
-    .from("leads")
-    .update({
-      cobrado: true,
-      cobranca_id: cobranca.id,
-      status: "cobrado",
-    })
-    .eq("id", leadId)
-
-  // Incrementa saldo devedor do profissional
-  await supabase.rpc("incrementar_saldo_devedor", {
-    p_profissional_id: lead.profissional_id,
-    p_valor: valor,
-  })
-
-  // Registra log
-  await registrarLog("lead", leadId, "cobranca_criada", { valor, cobranca_id: cobranca.id })
-
-  console.log(`[cobranca] Lead ${leadId} cobrado: R$${valor}`)
+  console.log(`[cobranca] Lead ${leadId} confirmado entregue (cobrança avulsa desativada)`)
   return true
 }
 

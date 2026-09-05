@@ -57,6 +57,15 @@ app.get("/", async () => {
   }
 })
 
+// ─── Buffer de Mensagens (Pausas Inteligentes) ──────────────────────────────
+const messageBuffer = new Map<string, {
+  textos: string[],
+  nome: string,
+  timeout: NodeJS.Timeout
+}>()
+
+const TEMPO_PAUSA_MS = 12000 // Aguarda 12 segundos de inatividade
+
 // ─── Webhook Z-API ────────────────────────────────────────────────────────────
 
 app.post<{ Body: ZApiWebhookPayload }>("/webhook", async (request, reply) => {
@@ -77,17 +86,36 @@ app.post<{ Body: ZApiWebhookPayload }>("/webhook", async (request, reply) => {
   const texto = payload.text.message.trim()
   if (!texto) return reply.send({ ok: true })
 
-  // Processa de forma assíncrona — responde 200 imediatamente para a Z-API
-  // (Z-API tem timeout curto no webhook)
-  setImmediate(() => {
-    processarMensagem({
-      telefone: payload.phone,
-      nome: payload.senderName || payload.chatName || "Cliente",
-      texto,
-    }).catch((err) => {
-      console.error("[webhook] Erro ao processar mensagem:", err)
+  const telefone = payload.phone
+  const nome = payload.senderName || payload.chatName || "Cliente"
+
+  // Logica de buffer
+  const bufferAtual = messageBuffer.get(telefone)
+  if (bufferAtual) {
+    clearTimeout(bufferAtual.timeout)
+    bufferAtual.textos.push(texto)
+  } else {
+    messageBuffer.set(telefone, {
+      textos: [texto],
+      nome,
+      timeout: setTimeout(() => {}, 0) // será reescrito abaixo
     })
-  })
+  }
+
+  const novoBuffer = messageBuffer.get(telefone)!
+  novoBuffer.timeout = setTimeout(() => {
+    // Quando o timer estoura, processa todas as mensagens juntas
+    const textoAgrupado = novoBuffer.textos.join("\n")
+    messageBuffer.delete(telefone)
+
+    processarMensagem({
+      telefone,
+      nome: novoBuffer.nome,
+      texto: textoAgrupado,
+    }).catch((err) => {
+      console.error("[webhook] Erro ao processar mensagem agrupada:", err)
+    })
+  }, TEMPO_PAUSA_MS)
 
   return reply.send({ ok: true })
 })

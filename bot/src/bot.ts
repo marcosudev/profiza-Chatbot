@@ -1,7 +1,8 @@
 import { extrairIntencao } from "./ai"
 import {
-  buscarProfissional,
-  buscarProfissionalFallback,
+  buscarProfissionais,
+  buscarProfissionaisFallback,
+  buscarProfissionaisJaEnviados,
   salvarLead,
   atualizarLeadMensagemId,
 } from "./supabase"
@@ -44,7 +45,7 @@ function limparContexto(telefone: string) {
 }
 
 export async function processarMensagem(msg: MensagemRecebida): Promise<void> {
-  console.log(`[bot] Mensagem de ${msg.telefone}: "${msg.texto}"`)
+  console.log(`[bot] Mensagem agrupada de ${msg.telefone}: "${msg.texto}"`)
 
   // 1. Extrair intenção via IA
   const intencao = await extrairIntencao(msg.texto)
@@ -65,6 +66,9 @@ export async function processarMensagem(msg: MensagemRecebida): Promise<void> {
     return
   }
 
+  // Se o usuário pedir "mais" contatos (intenção de paginação mapeada pela IA ou mesmo repetindo a busca)
+  // mantemos a categoria/bairro e passamos adiante.
+
   // Entendeu categoria mas não bairro — pede o bairro e salva contexto
   if (!bairro) {
     salvarContexto(msg.telefone, categoria, null)
@@ -84,57 +88,67 @@ export async function processarMensagem(msg: MensagemRecebida): Promise<void> {
   // Temos categoria + bairro — limpa contexto e busca profissional
   limparContexto(msg.telefone)
 
-  // 2. Buscar profissional com match exato (categoria + bairro)
-  const profissional = await buscarProfissional(categoria, bairro)
+  // 2. Buscar profissionais já enviados para não repeti-los
+  const ignoreIds = await buscarProfissionaisJaEnviados(msg.telefone, categoria)
 
-  if (profissional) {
+  // 3. Buscar profissionais com match exato (categoria + bairro)
+  const profissionais = await buscarProfissionais(categoria, bairro, ignoreIds, 4)
+
+  if (profissionais.length > 0) {
     const envio = await enviarMensagem(
       msg.telefone,
-      mensagens.profissionalEncontrado(profissional, categoria, bairro)
+      mensagens.profissionalEncontrado(profissionais, categoria, bairro)
     )
-    const leadId = await salvarLead({
-      nomeCliente: msg.nome,
-      whatsappCliente: msg.telefone,
-      categoria,
-      bairro,
-      profissionalId: profissional.id,
-      status: "enviado",
-      mensagemOriginal: msg.texto,
-    })
-    // Salva messageId para rastrear entrega e cobrar
-    if (leadId && envio.messageId) {
-      await atualizarLeadMensagemId(leadId, envio.messageId)
+
+    // Salva lead e métricas para cada profissional indicado
+    for (const prof of profissionais) {
+      const leadId = await salvarLead({
+        nomeCliente: msg.nome,
+        whatsappCliente: msg.telefone,
+        categoria,
+        bairro,
+        profissionalId: prof.id,
+        status: "enviado",
+        mensagemOriginal: msg.texto,
+      })
+      if (leadId && envio.messageId) {
+        await atualizarLeadMensagemId(leadId, envio.messageId)
+      }
     }
-    console.log(`[bot] Lead roteado → ${profissional.nome}`)
+
+    console.log(`[bot] Leads roteados → ${profissionais.map(p => p.nome).join(", ")}`)
     return
   }
 
-  // 3. Fallback — busca qualquer profissional da categoria (sem filtro de bairro)
-  const fallback = await buscarProfissionalFallback(categoria)
+  // 4. Fallback — busca qualquer profissional da categoria (sem filtro de bairro)
+  const fallbacks = await buscarProfissionaisFallback(categoria, ignoreIds, 4)
 
-  if (fallback) {
+  if (fallbacks.length > 0) {
     const envio = await enviarMensagem(
       msg.telefone,
-      mensagens.profissionalFallback(fallback, categoria, bairro)
+      mensagens.profissionalFallback(fallbacks, categoria, bairro)
     )
-    const leadId = await salvarLead({
-      nomeCliente: msg.nome,
-      whatsappCliente: msg.telefone,
-      categoria,
-      bairro,
-      profissionalId: fallback.id,
-      status: "enviado",
-      mensagemOriginal: msg.texto,
-    })
-    // Salva messageId para rastrear entrega e cobrar
-    if (leadId && envio.messageId) {
-      await atualizarLeadMensagemId(leadId, envio.messageId)
+
+    for (const fallback of fallbacks) {
+      const leadId = await salvarLead({
+        nomeCliente: msg.nome,
+        whatsappCliente: msg.telefone,
+        categoria,
+        bairro,
+        profissionalId: fallback.id,
+        status: "enviado",
+        mensagemOriginal: msg.texto,
+      })
+      if (leadId && envio.messageId) {
+        await atualizarLeadMensagemId(leadId, envio.messageId)
+      }
     }
-    console.log(`[bot] Lead roteado via fallback → ${fallback.nome}`)
+
+    console.log(`[bot] Leads roteados via fallback → ${fallbacks.map(f => f.nome).join(", ")}`)
     return
   }
 
-  // 4. Sem match nenhum — registra como sem_resposta
+  // 5. Sem match nenhum (ou acabaram as opções) — registra como sem_resposta
   await enviarMensagem(
     msg.telefone,
     mensagens.semMatch(categoria, bairro)
@@ -148,5 +162,5 @@ export async function processarMensagem(msg: MensagemRecebida): Promise<void> {
     status: "sem_resposta",
     mensagemOriginal: msg.texto,
   })
-  console.log(`[bot] Sem match para ${categoria} em ${bairro}`)
+  console.log(`[bot] Sem match para ${categoria} em ${bairro} (ou lista esgotada)`)
 }

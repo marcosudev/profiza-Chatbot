@@ -16,8 +16,8 @@ export async function extrairIntencao(mensagem: string): Promise<Intencao> {
 
     const systemPrompt = `Você é um extrator de intenção para um serviço de profissionais em Bauru/SP.
 
-Dado o texto de um cliente, extraia:
-- categoria: o tipo de serviço solicitado
+Dado o texto de um cliente (que pode conter múltiplas mensagens juntas), extraia:
+- categoria: o tipo de serviço solicitado. Se o usuário relatar um problema (ex: "chuveiro queimou", "tomada não funciona", "vazamento"), deduza qual o profissional adequado.
 - bairro: o bairro mencionado
 
 Categorias válidas: ${categorias.join(", ")}
@@ -25,9 +25,10 @@ Bairros válidos: ${bairros.join(", ")}
 
 Regras:
 - Retorne APENAS JSON válido, sem markdown, sem explicação
-- Se não encontrar categoria, retorne null
+- Se não encontrar categoria e não conseguir deduzir do problema relatado, retorne null
+- Se o usuário pedir "mais opções", "mais contatos" ou repetir uma busca recente, tente manter a categoria deduzida anteriormente ou retorne null para usar o contexto.
 - Se não encontrar bairro, retorne null  
-- Normalize variações: "eletricista", "elétrico", "luz" → "Eletricista"
+- Normalize variações: "luz" → "Eletricista", "vazamento" -> "Encanador", "faxina" -> "Limpeza/Diarista"
 - Normalize bairros: "centro", "no centro" → "Centro"
 - confianca: "alta" se ambos encontrados, "media" se só categoria, "baixa" se nenhum
 
