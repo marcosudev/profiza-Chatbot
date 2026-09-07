@@ -1,6 +1,49 @@
 import type { Profissional } from "./supabase"
 
 export const mensagens = {
+  feedbackProfissional(categoria: string, bairro: string): string {
+    return [
+      `Você recebeu uma oportunidade de *${categoria}* em *${bairro}*.`,
+      `Como está o atendimento? Responda com uma opção:`,
+      `1 - Cliente respondeu`,
+      `2 - Orçamento enviado`,
+      `3 - Serviço fechado`,
+      `4 - Cliente não respondeu`,
+      `5 - Contato inválido`,
+    ].join("\n")
+  },
+
+  feedbackRegistrado(label: string): string {
+    return `Obrigado! Registramos: *${label}*. Isso ajuda a melhorar suas oportunidades no Profiza.`
+  },
+
+  semFeedbackPendente(): string {
+    return "Não encontrei uma oportunidade pendente para atualizar. Quando receber um novo contato, enviarei uma nova pergunta."
+  },
+
+  relatorioSemanal(input: {
+    nome: string
+    total: number
+    clientesResponderam: number
+    orcamentos: number
+    servicosFechados: number
+    bairros: string[]
+  }): string {
+    const bairros = input.bairros.length > 0 ? input.bairros.join(", ") : "não informado"
+    return [
+      `Olá, *${input.nome}*! Aqui está seu resumo semanal Profiza:`,
+      ``,
+      `📩 Oportunidades recebidas: *${input.total}*`,
+      `💬 Clientes que responderam: *${input.clientesResponderam}*`,
+      `🧾 Orçamentos enviados: *${input.orcamentos}*`,
+      `✅ Serviços fechados: *${input.servicosFechados}*`,
+      `📍 Regiões: ${bairros}`,
+      ``,
+      `Para atualizar uma oportunidade, responda à mensagem que recebeu com uma das opções numeradas.`,
+      `Sua assinatura continua ativa e você pode ampliar seus bairros de atendimento quando quiser.`,
+    ].join("\n")
+  },
+
   // Profissional encontrado com match exato (categoria + bairro)
   profissionalEncontrado(profs: Profissional[], categoria: string, bairro: string): string {
     const header = `Ótima notícia! Encontrei opções de profissionais para você 🎉\n`

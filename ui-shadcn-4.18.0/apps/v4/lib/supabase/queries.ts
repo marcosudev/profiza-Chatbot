@@ -159,7 +159,16 @@ export interface Lead {
   status: LeadStatus
   data: string
   mensagem?: string
+  feedbackStatus?: FeedbackStatus | null
+  feedbackAt?: string | null
 }
+
+export type FeedbackStatus =
+  | "cliente_respondeu"
+  | "orcamento_enviado"
+  | "servico_fechado"
+  | "sem_resposta"
+  | "contato_invalido"
 
 interface LeadRow {
   id: string
@@ -171,6 +180,8 @@ interface LeadRow {
   profissional_id: string | null
   created_at: string
   profissionais?: { nome: string } | null
+  feedback_status?: FeedbackStatus | null
+  feedback_at?: string | null
 }
 
 function rowToLead(row: LeadRow): Lead {
@@ -183,6 +194,8 @@ function rowToLead(row: LeadRow): Lead {
     status: row.status,
     profissional: row.profissionais?.nome ?? null,
     data: row.created_at,
+    feedbackStatus: row.feedback_status ?? null,
+    feedbackAt: row.feedback_at ?? null,
   }
 }
 

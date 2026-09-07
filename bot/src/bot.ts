@@ -3,6 +3,11 @@ import {
   buscarProfissionais,
   buscarProfissionaisFallback,
   buscarProfissionaisJaEnviados,
+  buscarLeadPendenteFeedback,
+  buscarProfissionalPorWhatsApp,
+  interpretarFeedback,
+  registrarFeedbackLead,
+  rotuloFeedback,
   salvarLead,
   atualizarLeadMensagemId,
 } from "./supabase"
@@ -46,6 +51,22 @@ function limparContexto(telefone: string) {
 
 export async function processarMensagem(msg: MensagemRecebida): Promise<void> {
   console.log(`[bot] Mensagem agrupada de ${msg.telefone}: "${msg.texto}"`)
+
+  // Mensagens curtas de profissionais são tratadas como feedback antes da IA.
+  const profissional = await buscarProfissionalPorWhatsApp(msg.telefone)
+  const feedback = profissional ? interpretarFeedback(msg.texto) : null
+  if (profissional && feedback) {
+    const lead = await buscarLeadPendenteFeedback(profissional.id)
+    if (lead) {
+      const atualizado = await registrarFeedbackLead(lead.id, feedback)
+      if (atualizado) {
+        await enviarMensagem(msg.telefone, mensagens.feedbackRegistrado(rotuloFeedback(feedback)))
+      }
+    } else {
+      await enviarMensagem(msg.telefone, mensagens.semFeedbackPendente())
+    }
+    return
+  }
 
   // 1. Extrair intenção via IA
   const intencao = await extrairIntencao(msg.texto)
@@ -114,6 +135,7 @@ export async function processarMensagem(msg: MensagemRecebida): Promise<void> {
       if (leadId && envio.messageId) {
         await atualizarLeadMensagemId(leadId, envio.messageId)
       }
+      await enviarMensagem(prof.whatsapp, mensagens.feedbackProfissional(categoria, bairro))
     }
 
     console.log(`[bot] Leads roteados → ${profissionais.map(p => p.nome).join(", ")}`)
@@ -142,6 +164,7 @@ export async function processarMensagem(msg: MensagemRecebida): Promise<void> {
       if (leadId && envio.messageId) {
         await atualizarLeadMensagemId(leadId, envio.messageId)
       }
+      await enviarMensagem(fallback.whatsapp, mensagens.feedbackProfissional(categoria, bairro))
     }
 
     console.log(`[bot] Leads roteados via fallback → ${fallbacks.map(f => f.nome).join(", ")}`)

@@ -66,6 +66,14 @@ const statusConfig: Record<LeadStatus, { label: string; className: string }> = {
   convertido: { label: "Convertido", className: "bg-ring/20 text-ring" },
 }
 
+const feedbackLabels = {
+  cliente_respondeu: "Cliente respondeu",
+  orcamento_enviado: "Orçamento enviado",
+  servico_fechado: "Serviço fechado",
+  sem_resposta: "Cliente não respondeu",
+  contato_invalido: "Contato inválido",
+} as const
+
 interface Props {
   initialLeads: Lead[]
 }
@@ -243,6 +251,7 @@ export function LeadsClient({ initialLeads }: Props) {
                         </div>
                         <p className="mt-0.5 text-[11px] text-muted-foreground">{lead.categoria} • {lead.bairro}</p>
                         {lead.profissional && <p className="mt-0.5 text-[11px] text-muted-foreground">→ {lead.profissional}</p>}
+                        {lead.feedbackStatus && <p className="mt-0.5 text-[11px] text-primary">{feedbackLabels[lead.feedbackStatus]}</p>}
                       </div>
                       <div className="shrink-0 text-right">
                         <p className="text-[10px] text-muted-foreground">{formatDate(lead.data)}</p>
@@ -271,6 +280,7 @@ export function LeadsClient({ initialLeads }: Props) {
                     <TableHead>Categoria</TableHead>
                     <TableHead>Bairro</TableHead>
                     <TableHead>Profissional</TableHead>
+                    <TableHead>Feedback</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Data/Hora</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
@@ -301,6 +311,9 @@ export function LeadsClient({ initialLeads }: Props) {
                         ) : (
                           <span className="text-muted-foreground">—</span>
                         )}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {lead.feedbackStatus ? feedbackLabels[lead.feedbackStatus] : "Aguardando"}
                       </TableCell>
                       <TableCell>
                         <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusConfig[lead.status].className}`}>
@@ -369,6 +382,7 @@ export function LeadsClient({ initialLeads }: Props) {
                 <div><p className="text-sm text-muted-foreground">Categoria</p><p className="font-medium">{selectedLead.categoria}</p></div>
                 <div><p className="text-sm text-muted-foreground">Bairro</p><p className="font-medium">{selectedLead.bairro}</p></div>
                 <div><p className="text-sm text-muted-foreground">Profissional</p><p className="font-medium">{selectedLead.profissional || "Não atribuído"}</p></div>
+                <div><p className="text-sm text-muted-foreground">Feedback</p><p className="font-medium">{selectedLead.feedbackStatus ? feedbackLabels[selectedLead.feedbackStatus] : "Aguardando resposta"}</p></div>
                 <div>
                   <p className="text-sm text-muted-foreground">Status</p>
                   <span className={`inline-block rounded-full px-2.5 py-1 text-xs font-medium ${statusConfig[selectedLead.status].className}`}>

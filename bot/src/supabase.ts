@@ -152,6 +152,138 @@ export interface SalvarLeadInput {
   mensagemOriginal: string
 }
 
+export type FeedbackStatus =
+  | "cliente_respondeu"
+  | "orcamento_enviado"
+  | "servico_fechado"
+  | "sem_resposta"
+  | "contato_invalido"
+
+const feedbackLabels: Record<FeedbackStatus, string> = {
+  cliente_respondeu: "Cliente respondeu",
+  orcamento_enviado: "Orçamento enviado",
+  servico_fechado: "Serviço fechado",
+  sem_resposta: "Cliente não respondeu",
+  contato_invalido: "Contato inválido",
+}
+
+export function interpretarFeedback(texto: string): FeedbackStatus | null {
+  const valor = texto.trim().toLowerCase()
+  const porNumero: Record<string, FeedbackStatus> = {
+    "1": "cliente_respondeu",
+    "2": "orcamento_enviado",
+    "3": "servico_fechado",
+    "4": "sem_resposta",
+    "5": "contato_invalido",
+  }
+  return porNumero[valor] ?? null
+}
+
+export function rotuloFeedback(status: FeedbackStatus): string {
+  return feedbackLabels[status]
+}
+
+export async function buscarProfissionalPorWhatsApp(whatsapp: string) {
+  const numero = whatsapp.replace(/\D/g, "")
+  const { data } = await supabase
+    .from("profissionais")
+    .select("id, nome")
+    .in("whatsapp", [whatsapp, numero, `+${numero}`])
+    .in("status", ["ativo", "teste_gratis"])
+    .maybeSingle()
+
+  return data
+}
+
+export async function buscarLeadPendenteFeedback(profissionalId: string) {
+  const limite = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+  const { data } = await supabase
+    .from("leads")
+    .select("id, categoria, bairro")
+    .eq("profissional_id", profissionalId)
+    .is("feedback_status", null)
+    .in("status", ["enviado", "contato_enviado", "entrega_confirmada"])
+    .gte("created_at", limite)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  return data
+}
+
+export async function registrarFeedbackLead(
+  leadId: string,
+  status: FeedbackStatus
+): Promise<boolean> {
+  const { error } = await supabase
+    .from("leads")
+    .update({ feedback_status: status, feedback_at: new Date().toISOString() })
+    .eq("id", leadId)
+    .is("feedback_status", null)
+
+  return !error
+}
+
+interface RelatorioProfissional {
+  id: string
+  nome: string
+  whatsapp: string
+  total: number
+  clientesResponderam: number
+  orcamentos: number
+  servicosFechados: number
+  bairros: string[]
+}
+
+export async function buscarRelatoriosSemanais(
+  inicio: string,
+  fim: string
+): Promise<RelatorioProfissional[]> {
+  const [{ data: profissionais }, { data: leads }] = await Promise.all([
+    supabase
+      .from("profissionais")
+      .select("id, nome, whatsapp")
+      .in("status", ["ativo", "teste_gratis"]),
+    supabase
+      .from("leads")
+      .select("profissional_id, bairro, feedback_status")
+      .not("profissional_id", "is", null)
+      .gte("created_at", inicio)
+      .lt("created_at", fim),
+  ])
+
+  if (!profissionais || !leads) return []
+
+  return profissionais.flatMap((profissional) => {
+    const leadsDoProfissional = leads.filter((lead) => lead.profissional_id === profissional.id)
+    if (leadsDoProfissional.length === 0) return []
+
+    return [{
+      ...profissional,
+      total: leadsDoProfissional.length,
+      clientesResponderam: leadsDoProfissional.filter((lead) =>
+        ["cliente_respondeu", "orcamento_enviado", "servico_fechado"].includes(lead.feedback_status)
+      ).length,
+      orcamentos: leadsDoProfissional.filter((lead) =>
+        ["orcamento_enviado", "servico_fechado"].includes(lead.feedback_status)
+      ).length,
+      servicosFechados: leadsDoProfissional.filter((lead) => lead.feedback_status === "servico_fechado").length,
+      bairros: Array.from(new Set(leadsDoProfissional.map((lead) => lead.bairro).filter(Boolean))),
+    }]
+  })
+}
+
+export async function reservarRelatorioSemanal(
+  profissionalId: string,
+  semanaInicio: string
+): Promise<boolean> {
+  const { error } = await supabase
+    .from("relatorios_semanais_profissionais")
+    .insert({ profissional_id: profissionalId, semana_inicio: semanaInicio })
+
+  return !error
+}
+
 // Salva o lead e dispara o trigger de metricas_bot via leads_eventos
 export async function salvarLead(input: SalvarLeadInput): Promise<string | null> {
   const { data, error } = await supabase

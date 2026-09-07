@@ -3,11 +3,15 @@ import { config } from "./config"
 import { processarMensagem } from "./bot"
 import { verificarConexao } from "./zapi"
 import {
+  buscarRelatoriosSemanais,
   buscarLeadPorMensagemId,
   atualizarStatusEntrega,
   confirmarEntregaECobrar,
+  reservarRelatorioSemanal,
   registrarLog,
 } from "./supabase"
+import { enviarMensagem } from "./zapi"
+import { mensagens } from "./messages"
 
 const app = Fastify({ logger: true })
 
@@ -162,6 +166,51 @@ app.post<{ Body: ZApiStatusPayload }>("/webhook/status", async (request, reply) 
   return reply.send({ ok: true })
 })
 
+function dataNoFusoBauru(): { data: string; hora: number; diaSemana: number } {
+  const partes = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    weekday: "short",
+    hourCycle: "h23",
+  }).formatToParts(new Date())
+  const get = (type: string) => partes.find((parte) => parte.type === type)?.value ?? ""
+  const dias: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
+  return {
+    data: `${get("year")}-${get("month")}-${get("day")}`,
+    hora: Number(get("hour")),
+    diaSemana: dias[get("weekday")] ?? -1,
+  }
+}
+
+async function enviarRelatoriosSemanais(): Promise<void> {
+  const agora = dataNoFusoBauru()
+  if (agora.diaSemana !== 1 || agora.hora !== 9) return
+
+  const fim = new Date()
+  const inicio = new Date(fim.getTime() - 7 * 24 * 60 * 60 * 1000)
+  const relatorios = await buscarRelatoriosSemanais(inicio.toISOString(), fim.toISOString())
+
+  for (const relatorio of relatorios) {
+    const reservado = await reservarRelatorioSemanal(relatorio.id, agora.data)
+    if (!reservado) continue
+
+    await enviarMensagem(
+      relatorio.whatsapp,
+      mensagens.relatorioSemanal(relatorio)
+    )
+  }
+}
+
+// O registro único por profissional/semana impede duplicidade após reinícios.
+setInterval(() => {
+  enviarRelatoriosSemanais().catch((err) => {
+    console.error("[relatorio] Erro ao enviar resumos semanais:", err)
+  })
+}, 60 * 60 * 1000)
+
 // ─── Start ────────────────────────────────────────────────────────────────────
 
 async function start() {
@@ -177,6 +226,10 @@ async function start() {
     } else {
       console.warn("⚠️  Z-API desconectada — verifique o QR Code no painel")
     }
+
+    await enviarRelatoriosSemanais().catch((err) => {
+      console.error("[relatorio] Erro na verificação inicial:", err)
+    })
   } catch (err) {
     console.error("Erro ao iniciar servidor:", err)
     process.exit(1)
