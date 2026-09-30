@@ -162,4 +162,13 @@ export const mensagens = {
       "Fora desse horário, retornamos no próximo dia útil.",
     ].join("\n")
   },
+
+  foraDeBauru(): string {
+    return [
+      "Obrigado por compartilhar sua localização! 📍",
+      "",
+      "Por enquanto a Profiza atende apenas Bauru/SP.",
+      "Quer que eu te avise quando chegarmos na sua cidade? 😊",
+    ].join("\n")
+  },
 }

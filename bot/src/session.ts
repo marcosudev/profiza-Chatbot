@@ -13,6 +13,7 @@ export interface Sessao {
   profissionaisIndicados: string[]
   tentativasEsclarecimento: number
   ultimaIntencao: string | null
+  humano_ativo?: boolean
 }
 
 function contatoHash(telefone: string): string {

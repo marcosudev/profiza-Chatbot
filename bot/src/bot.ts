@@ -15,10 +15,12 @@ import {
   marcarSessaoHumanoAtivo,
   registrarOcorrencia,
   registrarMetricaMensagem,
+  registrarInteresseCidade,
 } from "./supabase"
 import { enviarMensagem, enviarPresenca } from "./evolution"
 import { mensagens } from "./messages"
 import { enviarAlertaHandoff, isBotPausado } from "./telegram"
+import { extrairCoordenadas, coordenadasParaBairro } from "./geo"
 import type { ItemBuffer } from "./buffer"
 
 export interface LoteRecebido {
@@ -36,7 +38,27 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
   // Sessão com humano ativo — bot não responde
   if (await sessaoHumanoAtivo(telefone)) return
 
-  const textos = itens
+  // Resolve localização compartilhada antes de montar o texto
+  const itensResolvidos = itens.map(item => {
+    if (item.tipo !== "texto") return item
+    const coords = extrairCoordenadas(item.conteudo)
+    if (!coords) return item
+    const bairroGeo = coordenadasParaBairro(coords.lat, coords.lng)
+    if (!bairroGeo) return { ...item, conteudo: "__fora_de_bauru__" }
+    return { ...item, conteudo: `meu bairro é ${bairroGeo.bairro}` }
+  })
+
+  // Verifica se cliente está fora de Bauru
+  if (itensResolvidos.some(i => i.conteudo === "__fora_de_bauru__")) {
+    const sessao = await carregarSessao(telefone)
+    sessao.ultimaIntencao = "fora_bauru"
+    await salvarSessao(telefone, sessao)
+    await enviarPresenca(telefone, "paused")
+    await enviarMensagem(telefone, mensagens.foraDeBauru())
+    return
+  }
+
+  const textos = itensResolvidos
     .filter(i => i.tipo === "texto")
     .map(i => i.conteudo)
     .join("\n")
@@ -89,6 +111,13 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
   }
 
   if (intencao.intencao === "fora_escopo") {
+    // Verifica se cliente quer ser avisado sobre nova cidade
+    const querAviso = /sim|quero|avisa|avise|pode/i.test(textos)
+    if (sessao.ultimaIntencao === "fora_bauru" && querAviso) {
+      await registrarInteresseCidade(telefone, textos)
+      await enviarMensagem(telefone, "Anotado! Te avisamos quando chegarmos na sua cidade. 😊")
+      return
+    }
     await enviarMensagem(telefone, mensagens.foraEscopo())
     return
   }
