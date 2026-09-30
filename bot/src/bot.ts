@@ -11,7 +11,7 @@ import {
   salvarLead,
   atualizarLeadMensagemId,
 } from "./supabase"
-import { enviarMensagem } from "./zapi"
+import { enviarMensagem } from "./evolution"
 import { mensagens } from "./messages"
 
 export interface MensagemRecebida {

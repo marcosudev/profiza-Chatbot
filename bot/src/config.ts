@@ -16,12 +16,9 @@ export const config = {
   openai: {
     apiKey: obrigatorio("OPENAI_API_KEY"),
   },
-  zapi: {
-    instanceId: obrigatorio("ZAPI_INSTANCE_ID"),
-    token: obrigatorio("ZAPI_TOKEN"),
-    clientToken: obrigatorio("ZAPI_CLIENT_TOKEN"),
-    baseUrl() {
-      return `https://api.z-api.io/instances/${this.instanceId}/token/${this.token}`
-    },
+  evolution: {
+    baseUrl: obrigatorio("EVOLUTION_BASE_URL"),
+    instance: obrigatorio("EVOLUTION_INSTANCE"),
+    apiKey: obrigatorio("EVOLUTION_API_KEY"),
   },
 }

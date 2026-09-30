@@ -1,7 +1,7 @@
 import Fastify from "fastify"
 import { config } from "./config"
 import { processarMensagem } from "./bot"
-import { verificarConexao } from "./zapi"
+import { verificarConexao } from "./evolution"
 import {
   buscarRelatoriosSemanais,
   buscarLeadPorMensagemId,
@@ -10,12 +10,12 @@ import {
   reservarRelatorioSemanal,
   registrarLog,
 } from "./supabase"
-import { enviarMensagem } from "./zapi"
+import { enviarMensagem } from "./evolution"
 import { mensagens } from "./messages"
 
 const app = Fastify({ logger: true })
 
-// ─── Tipos do payload Z-API ───────────────────────────────────────────────────
+// ─── Tipos do payload Evolution API ─────────────────────────────────────────
 
 interface ZApiWebhookPayload {
   instanceId: string
@@ -70,11 +70,10 @@ const messageBuffer = new Map<string, {
 
 const TEMPO_PAUSA_MS = 12000 // Aguarda 12 segundos de inatividade
 
-// ─── Webhook Z-API ────────────────────────────────────────────────────────────
+// ─── Webhook Evolution API ───────────────────────────────────────────────────
 
 app.post<{ Body: ZApiWebhookPayload }>("/webhook", async (request, reply) => {
-  // Valida token se enviado — Z-API não suporta headers customizados no painel
-  const secret = request.headers["z-api-token"] ?? request.headers["x-webhook-secret"]
+  const secret = request.headers["x-webhook-secret"] ?? request.headers["apikey"]
   if (secret && secret !== config.webhookSecret) {
     return reply.status(401).send({ error: "Unauthorized" })
   }
@@ -124,12 +123,12 @@ app.post<{ Body: ZApiWebhookPayload }>("/webhook", async (request, reply) => {
   return reply.send({ ok: true })
 })
 
-// ─── Webhook Status Z-API (confirmação de entrega) ────────────────────────────
+// ─── Webhook Status Evolution API (confirmação de entrega) ──────────────────
 
 app.get("/webhook/status", async () => ({ ok: true }))
 
 app.post<{ Body: ZApiStatusPayload }>("/webhook/status", async (request, reply) => {
-  const secret = request.headers["z-api-token"] ?? request.headers["x-webhook-secret"]
+  const secret = request.headers["x-webhook-secret"] ?? request.headers["apikey"]
   if (secret && secret !== config.webhookSecret) {
     return reply.status(401).send({ error: "Unauthorized" })
   }
@@ -222,9 +221,9 @@ async function start() {
 
     const conectado = await verificarConexao()
     if (conectado) {
-      console.log("✅ Z-API conectada ao WhatsApp")
+      console.log("✅ Evolution API conectada ao WhatsApp")
     } else {
-      console.warn("⚠️  Z-API desconectada — verifique o QR Code no painel")
+      console.warn("⚠️  Evolution API desconectada — verifique o QR Code no painel")
     }
 
     await enviarRelatoriosSemanais().catch((err) => {
