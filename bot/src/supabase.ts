@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { config } from "./config"
+import { hashContato, hashContatoLegado } from "./privacidade"
 
 const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey)
 
@@ -223,7 +224,8 @@ export async function salvarLead(input: SalvarLeadInput): Promise<string | null>
     .from("leads")
     .insert({
       nome_cliente: input.nomeCliente,
-      whatsapp_cliente: input.whatsappCliente,
+      whatsapp_cliente: "[protegido]",
+      contato_hash: hashContato(input.whatsappCliente),
       categoria: input.categoria,
       bairro: input.bairro,
       profissional_id: input.profissionalId,
@@ -418,12 +420,24 @@ export async function reservarRelatorioSemanal(profissionalId: string, semanaIni
 // ─── Handoff / sessão humano ──────────────────────────────────────────────────
 
 export async function marcarSessaoHumanoAtivo(telefone: string, ativo: boolean): Promise<void> {
-  const hash = Buffer.from(telefone).toString("base64")
-  const { data } = await supabase
+  const hash = hashContato(telefone)
+  const hashLegado = hashContatoLegado(telefone)
+  let hashSessao = hash
+  let { data } = await supabase
     .from("sessoes")
     .select("estado")
     .eq("contato_hash", hash)
     .single()
+
+  if (!data) {
+    hashSessao = hashLegado
+    const resultado = await supabase
+      .from("sessoes")
+      .select("estado")
+      .eq("contato_hash", hashLegado)
+      .single()
+    data = resultado.data
+  }
 
   if (!data) return
 
@@ -431,16 +445,26 @@ export async function marcarSessaoHumanoAtivo(telefone: string, ativo: boolean):
   await supabase
     .from("sessoes")
     .update({ estado, atualizado_em: new Date().toISOString() })
-    .eq("contato_hash", hash)
+    .eq("contato_hash", hashSessao)
 }
 
 export async function sessaoHumanoAtivo(telefone: string): Promise<boolean> {
-  const hash = Buffer.from(telefone).toString("base64")
-  const { data } = await supabase
+  const hash = hashContato(telefone)
+  const hashLegado = hashContatoLegado(telefone)
+  let { data } = await supabase
     .from("sessoes")
     .select("estado")
     .eq("contato_hash", hash)
     .single()
+
+  if (!data) {
+    const resultado = await supabase
+      .from("sessoes")
+      .select("estado")
+      .eq("contato_hash", hashLegado)
+      .single()
+    data = resultado.data
+  }
 
   return (data?.estado as any)?.humano_ativo === true
 }
@@ -524,7 +548,7 @@ export async function registrarOcorrencia(
 // ─── Interesse em cidades ─────────────────────────────────────────────────────
 
 export async function registrarInteresseCidade(telefone: string, cidadeTexto: string): Promise<void> {
-  const hash = Buffer.from(telefone).toString("base64")
+  const hash = hashContato(telefone)
   await supabase.from("interesse_cidades").insert({ contato_hash: hash, cidade_texto: cidadeTexto })
 }
 
@@ -578,16 +602,17 @@ export async function buscarResumoDiario(): Promise<ResumoDiario> {
 }
 
 export async function apagarDadosContato(telefone: string): Promise<void> {
-  const hash = Buffer.from(telefone).toString("base64")
-  await Promise.all([
-    supabase.from("sessoes").delete().eq("contato_hash", hash),
-    supabase.from("interesse_cidades").delete().eq("contato_hash", hash),
+  const hash = hashContato(telefone)
+  const hashLegado = hashContatoLegado(telefone)
+  const resultados = await Promise.all([
+    supabase.from("sessoes").delete().in("contato_hash", [hash, hashLegado]),
+    supabase.from("interesse_cidades").delete().in("contato_hash", [hash, hashLegado]),
+    supabase.from("metricas_bot").delete().in("contato_hash", [hash, hashLegado]),
+    supabase.from("leads").update({ nome_cliente: "[removido]", whatsapp_cliente: "[removido]" }).eq("contato_hash", hash),
+    supabase.from("leads").update({ nome_cliente: "[removido]", whatsapp_cliente: "[removido]" }).eq("whatsapp_cliente", telefone),
   ])
-  // Leads: anonimiza em vez de deletar (preserva métricas)
-  await supabase
-    .from("leads")
-    .update({ nome_cliente: "[removido]", whatsapp_cliente: "[removido]" })
-    .eq("whatsapp_cliente", telefone)
+  const falha = resultados.find(resultado => resultado.error)
+  if (falha?.error) throw new Error(`Falha ao apagar dados do contato: ${falha.error.message}`)
 }
 
 export async function registrarMetricaMensagem(dados: {

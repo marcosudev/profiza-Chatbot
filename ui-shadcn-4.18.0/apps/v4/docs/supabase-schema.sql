@@ -24,6 +24,7 @@ create table if not exists leads (
   id                  text primary key default gen_random_uuid()::text,
   nome_cliente        text not null,
   whatsapp_cliente    text not null,
+  contato_hash        text,
   categoria           text not null,
   bairro              text not null,
   status              text not null default 'novo'

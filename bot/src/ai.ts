@@ -1,7 +1,7 @@
 import OpenAI from "openai"
 import { config } from "./config"
 import { bairros, resolverBairro } from "./knowledge/bairros-bauru"
-import { categorias, slugsValidos, resolverCategoria } from "./knowledge/categorias"
+import { categorias, slugsValidos, resolverCategoria, resolverCategoriasSolicitadas } from "./knowledge/categorias"
 import { promptSistema } from "./knowledge/institucional"
 import type { Sessao } from "./session"
 
@@ -16,6 +16,8 @@ export interface Intencao {
   intencao: "busca_profissional" | "mais_opcoes" | "feedback" | "cadastro_profissional" | "emergencia" | "fora_escopo" | "saudacao" | "reclamacao" | "falar_humano"
   confianca: number
   mensagem: string
+  categoriasAlternativas: string[]
+  categoriasSolicitadas: string[]
 }
 
 function montarContextoBairros(): string {
@@ -39,6 +41,7 @@ export async function extrairIntencao(
 ): Promise<Intencao> {
   // Tenta resolver localmente antes de chamar a IA (mais rápido e barato)
   const catLocal = resolverCategoria(mensagem)
+  const categoriasSolicitadas = resolverCategoriasSolicitadas(mensagem)
   const bairroLocal = resolverBairro(mensagem)
 
   const contextoSessao = sessao.categoria || sessao.bairro
@@ -60,12 +63,14 @@ export async function extrairIntencao(
     })
 
     const content = response.choices[0]?.message?.content
-    if (!content) return fallback(catLocal, bairroLocal)
+    if (!content) return fallback(catLocal, bairroLocal, categoriasSolicitadas)
 
     const parsed = JSON.parse(content) as Partial<Intencao>
 
     // Valida categoria contra slugs válidos
-    const categoria = parsed.categoria && slugsValidos.includes(parsed.categoria)
+    const categoria = catLocal?.ambiguo || categoriasSolicitadas.length > 1
+      ? null
+      : parsed.categoria && slugsValidos.includes(parsed.categoria)
       ? parsed.categoria
       : catLocal?.slug ?? null
 
@@ -81,23 +86,28 @@ export async function extrairIntencao(
       intencao: parsed.intencao ?? "busca_profissional",
       confianca: parsed.confianca ?? 0.5,
       mensagem: parsed.mensagem ?? "",
+      categoriasAlternativas: catLocal?.ambiguo ? catLocal.alternativas : [],
+      categoriasSolicitadas,
     }
   } catch (err) {
     console.error("[ai] Erro ao extrair intenção:", err)
-    return fallback(catLocal, bairroLocal)
+    return fallback(catLocal, bairroLocal, categoriasSolicitadas)
   }
 }
 
 function fallback(
   catLocal: ReturnType<typeof resolverCategoria>,
-  bairroLocal: ReturnType<typeof resolverBairro>
+  bairroLocal: ReturnType<typeof resolverBairro>,
+  categoriasSolicitadas: string[]
 ): Intencao {
   return {
-    categoria: catLocal?.slug ?? null,
+    categoria: catLocal?.ambiguo || categoriasSolicitadas.length > 1 ? null : catLocal?.slug ?? null,
     bairro: bairroLocal?.bairro ?? null,
     regiao: bairroLocal?.regiao ?? null,
     intencao: "busca_profissional",
     confianca: 0.3,
     mensagem: "",
+    categoriasAlternativas: catLocal?.ambiguo ? catLocal.alternativas : [],
+    categoriasSolicitadas,
   }
 }

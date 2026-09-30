@@ -45,6 +45,7 @@ CREATE TABLE public.leads (
   profissional_id UUID REFERENCES public.profissionais(id),
   nome_cliente TEXT,
   whatsapp_cliente TEXT,
+  contato_hash TEXT,
   categoria TEXT NOT NULL,
   bairro TEXT,
   canal TEXT DEFAULT 'whatsapp',

@@ -188,7 +188,9 @@ function rowToLead(row: LeadRow): Lead {
   return {
     id: row.id,
     cliente: row.nome_cliente,
-    telefone: row.whatsapp_cliente,
+    telefone: ["[protegido]", "[removido]"].includes(row.whatsapp_cliente)
+      ? "Contato protegido"
+      : row.whatsapp_cliente,
     categoria: row.categoria,
     bairro: row.bairro,
     status: row.status,

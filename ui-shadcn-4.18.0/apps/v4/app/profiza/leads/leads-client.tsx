@@ -74,6 +74,11 @@ const feedbackLabels = {
   contato_invalido: "Contato inválido",
 } as const
 
+function linkWhatsApp(telefone: string): string | null {
+  const numero = telefone.replace(/\D/g, "")
+  return /^\d{10,15}$/.test(numero) ? `https://wa.me/${numero}` : null
+}
+
 interface Props {
   initialLeads: Lead[]
 }
@@ -255,15 +260,17 @@ export function LeadsClient({ initialLeads }: Props) {
                       </div>
                       <div className="shrink-0 text-right">
                         <p className="text-[10px] text-muted-foreground">{formatDate(lead.data)}</p>
-                        <a
-                          href={`https://wa.me/${lead.telefone.replace(/\D/g, "")}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="mt-1 inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          WhatsApp
-                        </a>
+                        {linkWhatsApp(lead.telefone) ? (
+                          <a
+                            href={linkWhatsApp(lead.telefone) ?? undefined}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="mt-1 inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            WhatsApp
+                          </a>
+                        ) : <span className="mt-1 block text-[10px] text-muted-foreground">Contato protegido</span>}
                       </div>
                     </button>
                   ))}
@@ -298,9 +305,11 @@ export function LeadsClient({ initialLeads }: Props) {
                           <button onClick={() => setSelectedLead(lead)} className="font-medium text-foreground hover:text-primary hover:underline">
                             {lead.cliente}
                           </button>
-                          <a href={`https://wa.me/${lead.telefone.replace(/\D/g, "")}`} target="_blank" rel="noopener noreferrer" className="block text-xs text-muted-foreground hover:text-primary hover:underline">
-                            {lead.telefone}
-                          </a>
+                          {linkWhatsApp(lead.telefone) ? (
+                            <a href={linkWhatsApp(lead.telefone) ?? undefined} target="_blank" rel="noopener noreferrer" className="block text-xs text-muted-foreground hover:text-primary hover:underline">
+                              {lead.telefone}
+                            </a>
+                          ) : <span className="block text-xs text-muted-foreground">Contato protegido</span>}
                         </div>
                       </TableCell>
                       <TableCell className="text-foreground">{lead.categoria}</TableCell>
@@ -330,9 +339,11 @@ export function LeadsClient({ initialLeads }: Props) {
                             <DropdownMenuItem onClick={() => setSelectedLead(lead)}>
                               <Eye className="mr-2 h-4 w-4" />Ver detalhes
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => window.open(`https://wa.me/${lead.telefone.replace(/\D/g, "")}`, "_blank")}>
-                              <ArrowUpRight className="mr-2 h-4 w-4" />WhatsApp cliente
-                            </DropdownMenuItem>
+                            {linkWhatsApp(lead.telefone) && (
+                              <DropdownMenuItem onClick={() => window.open(linkWhatsApp(lead.telefone) ?? "", "_blank")}>
+                                <ArrowUpRight className="mr-2 h-4 w-4" />WhatsApp cliente
+                              </DropdownMenuItem>
+                            )}
                             {lead.status === "sem_resposta" && (
                               <>
                                 <DropdownMenuSeparator />
@@ -375,9 +386,11 @@ export function LeadsClient({ initialLeads }: Props) {
                 <div><p className="text-sm text-muted-foreground">Cliente</p><p className="font-medium">{selectedLead.cliente}</p></div>
                 <div>
                   <p className="text-sm text-muted-foreground">Telefone</p>
-                  <a href={`https://wa.me/${selectedLead.telefone.replace(/\D/g, "")}`} target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:underline">
-                    {selectedLead.telefone}
-                  </a>
+                  {linkWhatsApp(selectedLead.telefone) ? (
+                    <a href={linkWhatsApp(selectedLead.telefone) ?? undefined} target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:underline">
+                      {selectedLead.telefone}
+                    </a>
+                  ) : <span className="font-medium">Contato protegido</span>}
                 </div>
                 <div><p className="text-sm text-muted-foreground">Categoria</p><p className="font-medium">{selectedLead.categoria}</p></div>
                 <div><p className="text-sm text-muted-foreground">Bairro</p><p className="font-medium">{selectedLead.bairro}</p></div>
@@ -397,9 +410,15 @@ export function LeadsClient({ initialLeads }: Props) {
                 </div>
               )}
               <div className="flex gap-2 pt-2">
-                <Button className="flex-1" onClick={() => window.open(`https://wa.me/${selectedLead.telefone.replace(/\D/g, "")}`, "_blank")}>
-                  <ArrowUpRight className="h-4 w-4" />WhatsApp
-                </Button>
+                {linkWhatsApp(selectedLead.telefone) ? (
+                  <Button className="flex-1" onClick={() => window.open(linkWhatsApp(selectedLead.telefone) ?? "", "_blank")}>
+                    <ArrowUpRight className="h-4 w-4" />WhatsApp
+                  </Button>
+                ) : (
+                  <Button className="flex-1" disabled>
+                    <ArrowUpRight className="h-4 w-4" />Contato protegido
+                  </Button>
+                )}
                 {selectedLead.status === "sem_resposta" && (
                   <Button variant="outline" onClick={() => { handleRerotear(selectedLead); setSelectedLead(null) }}>
                     <RefreshCw className="h-4 w-4" />Re-rotear

@@ -45,7 +45,7 @@ export const mensagens = {
   },
 
   // Profissional encontrado com match exato (categoria + bairro)
-  profissionalEncontrado(profs: Profissional[], categoria: string, bairro: string): string {
+  profissionalEncontrado(profs: Profissional[], categoria: string, bairro: string, proximoServico?: string | null): string {
     const header = `Ótima notícia! Encontrei opções de profissionais para você 🎉\n`
 
     const lista = profs.map(prof => {
@@ -58,11 +58,14 @@ export const mensagens = {
       ].join("\n")
     }).join("\n\n")
 
-    return `${header}\n${lista}\n\nEntre em contato diretamente pelo WhatsApp e mencione que veio pelo Profiza! Se precisar de mais contatos, é só pedir!`
+    const fechamento = proximoServico
+      ? `Entre em contato diretamente pelo WhatsApp e mencione que veio pelo Profiza! Posso buscar também profissionais de *${proximoServico}*?`
+      : "Entre em contato diretamente pelo WhatsApp e mencione que veio pelo Profiza! Se precisar de mais contatos, é só pedir!"
+    return `${header}\n${lista}\n\n${fechamento}`
   },
 
   // Profissional encontrado mas em bairro diferente (fallback)
-  profissionalFallback(profs: Profissional[], categoria: string, bairroSolicitado: string): string {
+  profissionalFallback(profs: Profissional[], categoria: string, bairroSolicitado: string, proximoServico?: string | null): string {
     const header = `Encontrei profissionais de *${categoria}*, mas talvez não atendam ${bairroSolicitado} ainda.\n`
 
     const lista = profs.map(prof => {
@@ -74,24 +77,30 @@ export const mensagens = {
       ].join("\n")
     }).join("\n\n")
 
-    return `${header}\n${lista}\n\nVale perguntar se eles conseguem atender sua região! 😊 Se precisar de mais contatos, é só pedir!`
+    const fechamento = proximoServico
+      ? `Vale perguntar se eles conseguem atender sua região! 😊 Posso buscar também profissionais de *${proximoServico}*?`
+      : "Vale perguntar se eles conseguem atender sua região! 😊 Se precisar de mais contatos, é só pedir!"
+    return `${header}\n${lista}\n\n${fechamento}`
   },
 
   // Nenhum profissional encontrado
-  semMatch(categoria: string, bairro: string | null, templateCustomizado?: string): string {
+  semMatch(categoria: string, bairro: string | null, templateCustomizado?: string, proximoServico?: string | null): string {
     const local = bairro ? ` em ${bairro}` : ""
+    let resposta: string
     if (templateCustomizado) {
-      return templateCustomizado
+      resposta = templateCustomizado
         .replace(/\{categoria\}/g, categoria)
         .replace(/\{local\}/g, local)
+    } else {
+      resposta = [
+        `Ainda não temos um profissional de *${categoria}*${local} cadastrado. 😕`,
+        ``,
+        `Vou registrar sua solicitação e assim que tivermos alguém disponível na sua região, te avisamos!`,
+        ``,
+        `Obrigado por usar o Profiza 🙏`,
+      ].join("\n")
     }
-    return [
-      `Ainda não temos um profissional de *${categoria}*${local} cadastrado. 😕`,
-      ``,
-      `Vou registrar sua solicitação e assim que tivermos alguém disponível na sua região, te avisamos!`,
-      ``,
-      `Obrigado por usar o Profiza 🙏`,
-    ].join("\n")
+    return proximoServico ? `${resposta}\n\nPosso buscar também profissionais de *${proximoServico}*?` : resposta
   },
 
   // Não entendeu a mensagem (sem categoria)
@@ -101,6 +110,17 @@ export const mensagens = {
       ``,
       `Me diga o serviço que precisa e o bairro em Bauru que eu encontro o profissional ideal para você! 🔧👷`,
     ].join("\n")
+  },
+
+  categoriaAmbigua(opcoes: string[]): string {
+    return `Para eu acertar: qual serviço você precisa: ${opcoes.join(" ou ")}?`
+  },
+
+  confirmarOrdem(opcoes: string[]): string {
+    const ordem = opcoes.length > 2
+      ? `${opcoes.slice(0, -1).join(", ")} e ${opcoes.at(-1)}`
+      : opcoes.join(" e ")
+    return `Anotei: ${ordem}. Vou começar por *${opcoes[0]}* e depois buscar os demais. Posso seguir nessa ordem?`
   },
 
   // Categoria entendida mas bairro não informado

@@ -96,7 +96,10 @@ ZAPI_CLIENT_TOKEN=SEU_CLIENT_TOKEN
 
 PORT=3001
 WEBHOOK_SECRET=profiza-webhook-secret-2024
+CONTACT_HASH_SECRET=gere-um-segredo-aleatorio-e-mantenha-estavel
 ```
+
+`CONTACT_HASH_SECRET` protege os identificadores de contato armazenados e deve permanecer igual entre deploys. Se omitido, o bot usa `WEBHOOK_SECRET`.
 
 > **IMPORTANTE:** Use a `service_role` key do Supabase (não a `anon`).
 > Ela bypassa o RLS e permite que o bot leia e escreva sem autenticação.

@@ -2,8 +2,8 @@ import Fastify from "fastify"
 import { config } from "./config"
 import { processarLote } from "./bot"
 import { verificarConexao, enviarMensagem } from "./evolution"
-import { adicionarAoBuffer } from "./buffer"
-import { transcreverAudio, obterAudioBase64 } from "./audio"
+import { adicionarAoBuffer, resolverAudioPendente } from "./buffer"
+import { transcreverAudio, obterAudioBase64, audioExcedeDuracaoMaxima } from "./audio"
 import {
   buscarRelatoriosSemanais,
   buscarLeadPorMensagemId,
@@ -35,7 +35,7 @@ interface EvolutionWebhookPayload {
     message?: {
       conversation?: string
       extendedTextMessage?: { text?: string }
-      audioMessage?: { url?: string; mimetype?: string; ptt?: boolean }
+      audioMessage?: { url?: string; mimetype?: string; ptt?: boolean; seconds?: number }
       locationMessage?: { degreesLatitude?: number; degreesLongitude?: number }
     }
     messageType?: string
@@ -93,7 +93,20 @@ app.post<{ Body: EvolutionWebhookPayload; Querystring: { secret?: string } }>("/
 
   // Áudio
   if (messageType === "audioMessage") {
-    // Avisa recepção e transcreve em background
+    if (audioExcedeDuracaoMaxima(message?.audioMessage?.seconds)) {
+      setImmediate(() => {
+        enviarMensagem(telefone, "O áudio passou do limite de duração. Pode enviar uma mensagem de texto? 😊")
+      })
+      return reply.send({ ok: true })
+    }
+
+    adicionarAoBuffer(
+      telefone,
+      { tipo: "audio", conteudo: "", messageId, pendente: true },
+      nome,
+      processarLote
+    )
+
     setImmediate(async () => {
       try {
         const audio = await obterAudioBase64(
@@ -105,24 +118,35 @@ app.post<{ Body: EvolutionWebhookPayload; Querystring: { secret?: string } }>("/
 
         if (!audio) {
           await enviarMensagem(telefone, "Não consegui entender o áudio. Pode digitar sua mensagem? 😊")
+          resolverAudioPendente(telefone, messageId, null)
           return
         }
 
-        const transcricao = await transcreverAudio(audio.base64, audio.mimeType)
+        let avisoTimer: NodeJS.Timeout
+        let envioAviso: ReturnType<typeof enviarMensagem> | null = null
+        avisoTimer = setTimeout(() => {
+          envioAviso = enviarMensagem(telefone, "🎙️ Recebi seu áudio! Já te respondo.")
+        }, 3000)
+
+        let transcricao: string | null
+        try {
+          transcricao = await transcreverAudio(audio.base64, audio.mimeType)
+        } finally {
+          clearTimeout(avisoTimer)
+        }
+        if (envioAviso) await envioAviso
 
         if (!transcricao) {
           await enviarMensagem(telefone, "Não consegui entender o áudio. Pode digitar sua mensagem? 😊")
+          resolverAudioPendente(telefone, messageId, null)
           return
         }
 
-        adicionarAoBuffer(
-          telefone,
-          { tipo: "texto", conteudo: transcricao, messageId },
-          nome,
-          processarLote
-        )
+        resolverAudioPendente(telefone, messageId, transcricao)
       } catch (err) {
         console.error("[webhook] Erro ao processar áudio:", err)
+        await enviarMensagem(telefone, "Não consegui entender o áudio. Pode digitar sua mensagem? 😊")
+        resolverAudioPendente(telefone, messageId, null)
       }
     })
 

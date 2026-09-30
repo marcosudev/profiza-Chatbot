@@ -94,6 +94,13 @@ CREATE TABLE IF NOT EXISTS public.interesse_cidades (
   criado_em TIMESTAMPTZ DEFAULT now()
 );
 
+-- Hash keyed do contato do cliente; novos leads não armazenam o telefone em texto claro
+ALTER TABLE public.leads
+  ADD COLUMN IF NOT EXISTS contato_hash TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_leads_contato_hash
+  ON public.leads(contato_hash);
+
 -- Novos campos na tabela profissionais
 ALTER TABLE public.profissionais
   ADD COLUMN IF NOT EXISTS nivel_verificacao SMALLINT DEFAULT 1,
@@ -130,16 +137,26 @@ ALTER TABLE public.cliques_contato ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ocorrencias ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.interesse_cidades ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "service_role_full" ON public.sessoes FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "service_role_full" ON public.mensagens_processadas FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "service_role_full" ON public.bairros FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "service_role_full" ON public.regioes FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "service_role_full" ON public.cidades FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "service_role_full" ON public.profissional_bairros FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "service_role_full" ON public.referencias_geograficas FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "service_role_full" ON public.cliques_contato FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "service_role_full" ON public.ocorrencias FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "service_role_full" ON public.interesse_cidades FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "service_role_full" ON public.sessoes;
+CREATE POLICY "service_role_full" ON public.sessoes FOR ALL TO service_role USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "service_role_full" ON public.mensagens_processadas;
+CREATE POLICY "service_role_full" ON public.mensagens_processadas FOR ALL TO service_role USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "service_role_full" ON public.bairros;
+CREATE POLICY "service_role_full" ON public.bairros FOR ALL TO service_role USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "service_role_full" ON public.regioes;
+CREATE POLICY "service_role_full" ON public.regioes FOR ALL TO service_role USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "service_role_full" ON public.cidades;
+CREATE POLICY "service_role_full" ON public.cidades FOR ALL TO service_role USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "service_role_full" ON public.profissional_bairros;
+CREATE POLICY "service_role_full" ON public.profissional_bairros FOR ALL TO service_role USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "service_role_full" ON public.referencias_geograficas;
+CREATE POLICY "service_role_full" ON public.referencias_geograficas FOR ALL TO service_role USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "service_role_full" ON public.cliques_contato;
+CREATE POLICY "service_role_full" ON public.cliques_contato FOR ALL TO service_role USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "service_role_full" ON public.ocorrencias;
+CREATE POLICY "service_role_full" ON public.ocorrencias FOR ALL TO service_role USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "service_role_full" ON public.interesse_cidades;
+CREATE POLICY "service_role_full" ON public.interesse_cidades FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 -- ============================================================
 -- Pronto! Execute este arquivo no Supabase SQL Editor.

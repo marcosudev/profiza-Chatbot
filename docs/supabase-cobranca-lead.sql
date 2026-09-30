@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS public.leads (
   -- Dados do cliente
   nome_cliente TEXT,
   whatsapp_cliente TEXT,
+  contato_hash TEXT,
   
   -- Dados extraídos pela IA
   categoria TEXT NOT NULL,

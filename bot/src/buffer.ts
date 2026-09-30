@@ -5,6 +5,7 @@ interface ItemBuffer {
   tipo: "texto" | "audio"
   conteudo: string        // texto ou URL do áudio
   messageId: string
+  pendente?: boolean
 }
 
 interface EntradaBuffer {
@@ -14,9 +15,11 @@ interface EntradaBuffer {
   nome: string
   iniciado: number
   processando: boolean
+  aguardandoAudio: boolean
   proximoLote: ItemBuffer[]
   proximoLoteIniciado: number | null
   proximoLoteAtualizado: number | null
+  onProcessar: CallbackProcessar
 }
 
 type CallbackProcessar = (params: {
@@ -51,6 +54,7 @@ export function adicionarAoBuffer(
 
   if (entrada) {
     clearTimeout(entrada.timeout)
+    entrada.aguardandoAudio = false
     entrada.itens.push(item)
     entrada.timeout = agendarProcessamento(telefone, nome, onProcessar)
     return
@@ -67,10 +71,35 @@ export function adicionarAoBuffer(
     nome,
     iniciado: Date.now(),
     processando: false,
+    aguardandoAudio: false,
     proximoLote: [],
     proximoLoteIniciado: null,
     proximoLoteAtualizado: null,
+    onProcessar,
   })
+}
+
+export function resolverAudioPendente(
+  telefone: string,
+  messageId: string,
+  transcricao: string | null
+): void {
+  const entrada = buffers.get(telefone)
+  if (!entrada) return
+
+  const item = [...entrada.itens, ...entrada.proximoLote].find(
+    candidato => candidato.messageId === messageId && candidato.pendente
+  )
+  if (!item) return
+
+  item.tipo = "texto"
+  item.conteudo = transcricao?.trim() ?? ""
+  item.pendente = false
+
+  if (!entrada.processando && entrada.aguardandoAudio && !entrada.itens.some(candidato => candidato.pendente)) {
+    entrada.aguardandoAudio = false
+    void processarBuffer(telefone, entrada.nome, entrada.onProcessar)
+  }
 }
 
 function agendarProcessamento(
@@ -91,6 +120,10 @@ async function processarBuffer(
   const entrada = buffers.get(telefone)
   if (!entrada || entrada.itens.length === 0) {
     buffers.delete(telefone)
+    return
+  }
+  if (entrada.itens.some(item => item.pendente)) {
+    entrada.aguardandoAudio = true
     return
   }
 
@@ -120,6 +153,7 @@ async function processarBuffer(
       entrada.proximoLoteAtualizado = null
       entrada.iniciado = iniciado
       entrada.processando = false
+      entrada.aguardandoAudio = false
       entrada.timeout = setTimeout(() => {
         processarBuffer(telefone, nome, onProcessar)
       }, Math.min(esperaDebounce, esperaMaxima))

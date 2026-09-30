@@ -7,6 +7,10 @@ const TRANSCRIBE_MODEL = process.env.TRANSCRIBE_MODEL ?? "whisper-1"
 const AUDIO_MAX_SECONDS = Number(process.env.AUDIO_MAX_SECONDS ?? 120)
 const TIMEOUT_MS = 15000
 
+export function audioExcedeDuracaoMaxima(segundos?: number): boolean {
+  return typeof segundos === "number" && segundos > AUDIO_MAX_SECONDS
+}
+
 export async function transcreverAudio(
   base64: string,
   mimeType: string = "audio/ogg"
@@ -23,19 +27,26 @@ export async function transcreverAudio(
     const ext = mimeType.includes("mp4") ? "mp4" : mimeType.includes("mpeg") ? "mp3" : "ogg"
     const file = new File([buffer], `audio.${ext}`, { type: mimeType })
 
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+    for (let tentativa = 0; tentativa < 2; tentativa++) {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
 
-    try {
-      const result = await openai.audio.transcriptions.create({
-        file,
-        model: TRANSCRIBE_MODEL,
-        language: "pt",
-      })
-      return result.text?.trim() || null
-    } finally {
-      clearTimeout(timer)
+      try {
+        const result = await openai.audio.transcriptions.create({
+          file,
+          model: TRANSCRIBE_MODEL,
+          language: "pt",
+        }, { signal: controller.signal })
+        return result.text?.trim() || null
+      } catch (err) {
+        if (tentativa === 1) throw err
+        console.warn("[audio] Transcrição falhou; tentando novamente:", err)
+      } finally {
+        clearTimeout(timer)
+      }
     }
+
+    return null
   } catch (err) {
     console.error("[audio] Erro na transcrição:", err)
     return null

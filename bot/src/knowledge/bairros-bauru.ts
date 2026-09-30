@@ -52,7 +52,6 @@ export const bairros: Bairro[] = [
 ]
 
 export const referencias: Record<string, string> = {
-  "shopping": "Jardim Estoril",
   "shopping bauru": "Jardim Estoril",
   "unesp": "Jardim Universitário",
   "faculdade": "Jardim Universitário",
@@ -72,6 +71,66 @@ export function normalizar(texto: string): string {
     .trim()
 }
 
+function distanciaEdicao(primeira: string, segunda: string): number {
+  let linhaAnterior = Array.from({ length: segunda.length + 1 }, (_, indice) => indice)
+
+  for (let indicePrimeira = 1; indicePrimeira <= primeira.length; indicePrimeira++) {
+    const linhaAtual = [indicePrimeira]
+    for (let indiceSegunda = 1; indiceSegunda <= segunda.length; indiceSegunda++) {
+      const custo = primeira[indicePrimeira - 1] === segunda[indiceSegunda - 1] ? 0 : 1
+      linhaAtual[indiceSegunda] = Math.min(
+        linhaAtual[indiceSegunda - 1] + 1,
+        linhaAnterior[indiceSegunda] + 1,
+        linhaAnterior[indiceSegunda - 1] + custo
+      )
+    }
+    linhaAnterior = linhaAtual
+  }
+
+  return linhaAnterior[segunda.length]
+}
+
+function resolverBairroComErro(norm: string): { bairro: string; regiao: string } | null {
+  const palavras = norm.split(" ").filter(Boolean)
+  const candidatos = bairros.flatMap(b =>
+    [...new Set([b.nome, ...b.apelidos].map(normalizar))]
+      .map(frase => ({ bairro: b, palavras: frase.split(" ") }))
+  )
+  let menorPontuacao = Infinity
+  const melhoresBairros = new Set<string>()
+
+  for (const candidato of candidatos) {
+    const tamanho = candidato.palavras.length
+    for (let inicio = 0; inicio <= palavras.length - tamanho; inicio++) {
+      let pontuacao = 0
+      let valido = true
+
+      for (let indice = 0; indice < tamanho; indice++) {
+        const palavra = candidato.palavras[indice]
+        const erro = distanciaEdicao(palavras[inicio + indice], palavra)
+        const limite = palavra.length >= 9 ? 2 : palavra.length >= 5 ? 1 : 0
+        if (erro > limite) {
+          valido = false
+          break
+        }
+        pontuacao += erro
+      }
+
+      if (!valido || pontuacao === 0 || pontuacao > 2) continue
+      if (pontuacao < menorPontuacao) {
+        menorPontuacao = pontuacao
+        melhoresBairros.clear()
+      }
+      if (pontuacao === menorPontuacao) melhoresBairros.add(candidato.bairro.nome)
+    }
+  }
+
+  if (melhoresBairros.size !== 1) return null
+  const nome = [...melhoresBairros][0]
+  const bairro = bairros.find(candidato => candidato.nome === nome)
+  return bairro ? { bairro: bairro.nome, regiao: bairro.regiao } : null
+}
+
 export function resolverBairro(texto: string): { bairro: string; regiao: string } | null {
   const norm = normalizar(texto)
 
@@ -89,7 +148,7 @@ export function resolverBairro(texto: string): { bairro: string; regiao: string 
     }
   }
 
-  return null
+  return resolverBairroComErro(norm)
 }
 
 export function bairrosDaRegiao(regiao: string): string[] {

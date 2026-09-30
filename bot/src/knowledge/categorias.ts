@@ -115,23 +115,57 @@ export const categorias: Categoria[] = [
 
 export const slugsValidos = categorias.map(c => c.slug)
 
-export function resolverCategoria(texto: string): { slug: string; label: string; ambiguo: boolean } | null {
+export function resolverCategoria(texto: string): { slug: string; label: string; ambiguo: boolean; alternativas: string[] } | null {
   const norm = texto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+  const correspondencias = categorias.map(cat => {
+    const termos = [cat.label, ...cat.sinonimos]
+      .map(termo => termo.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""))
+      .filter(termo => norm.includes(termo))
+    return { cat, termos, pontuacao: termos.reduce((total, termo) => total + termo.length, 0) }
+  }).filter(correspondencia => correspondencia.termos.length > 0)
 
-  for (const cat of categorias) {
-    for (const sin of cat.sinonimos) {
-      const sinNorm = sin.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-      if (norm.includes(sinNorm)) {
-        return { slug: cat.slug, label: cat.label, ambiguo: (cat.ambiguo?.length ?? 0) > 0 }
-      }
-    }
-    const labelNorm = cat.label.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-    if (norm.includes(labelNorm)) {
-      return { slug: cat.slug, label: cat.label, ambiguo: false }
-    }
+  if (correspondencias.length === 0) return null
+
+  const maiorPontuacao = Math.max(...correspondencias.map(correspondencia => correspondencia.pontuacao))
+  const melhores = correspondencias.filter(correspondencia => correspondencia.pontuacao === maiorPontuacao)
+  const principal = melhores[0].cat
+  const alternativas = melhores.map(correspondencia => correspondencia.cat.slug)
+
+  return {
+    slug: principal.slug,
+    label: principal.label,
+    ambiguo: alternativas.length > 1,
+    alternativas,
   }
+}
 
-  return null
+export function resolverCategoriaPendente(texto: string, alternativas: string[]): string | null {
+  const norm = texto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+  const selecionada = categorias.find(cat => {
+    if (!alternativas.includes(cat.slug)) return false
+    const label = cat.label.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    const slug = cat.slug.replace(/-/g, " ")
+    return norm.includes(label) || norm.includes(slug)
+  })
+  return selecionada?.slug ?? null
+}
+
+export function resolverCategoriasSolicitadas(texto: string): string[] {
+  const norm = texto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+  if (!/\b(e|tambem|depois|alem de)\b/.test(norm)) return []
+
+  const correspondencias = categorias.map(cat => {
+    const posicoes = [cat.label, ...cat.sinonimos]
+      .map(termo => termo.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""))
+      .map(termo => norm.indexOf(termo))
+      .filter(posicao => posicao >= 0)
+    return { slug: cat.slug, posicao: Math.min(...posicoes) }
+  })
+    .filter(correspondencia => Number.isFinite(correspondencia.posicao))
+    .sort((a, b) => a.posicao - b.posicao)
+
+  const slugs = correspondencias.map(correspondencia => correspondencia.slug)
+  return slugs.length > 1 ? slugs : []
 }
 
 export function listarCategorias(): string {

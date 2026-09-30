@@ -1,4 +1,5 @@
 import { config } from "./config"
+import { hashContato } from "./privacidade"
 
 // Normaliza número para formato E.164 sem o +
 export function normalizarNumero(numero: string): string {
@@ -45,7 +46,7 @@ export async function enviarMensagem(
     }
 
     const msgId = data.key?.id
-    console.log(`[evolution] Mensagem enviada para ${numero} — id: ${msgId}`)
+    console.log(`[evolution] Mensagem enviada para contato ${hashContato(numero).slice(0, 12)} — id: ${msgId}`)
     return { sucesso: true, messageId: msgId }
   } catch (err) {
     console.error("[evolution] Falha na requisição:", err)

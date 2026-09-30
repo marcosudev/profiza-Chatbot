@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { config } from "./config"
+import { hashContato, hashContatoLegado } from "./privacidade"
 
 const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey)
 
@@ -13,21 +14,32 @@ export interface Sessao {
   profissionaisIndicados: string[]
   tentativasEsclarecimento: number
   ultimaIntencao: string | null
+  categoriasPendentes?: string[]
+  servicosNaFila?: string[]
+  servicoAtual?: string | null
+  aguardandoConfirmacaoServico?: boolean
   humano_ativo?: boolean
   primeiraInteracao?: boolean
 }
 
-function contatoHash(telefone: string): string {
-  return Buffer.from(telefone).toString("base64")
-}
-
 export async function carregarSessao(telefone: string): Promise<Sessao> {
-  const hash = contatoHash(telefone)
-  const { data } = await supabase
+  const hash = hashContato(telefone)
+  const hashLegado = hashContatoLegado(telefone)
+  const { data: sessaoNova } = await supabase
     .from("sessoes")
     .select("estado, atualizado_em")
     .eq("contato_hash", hash)
     .single()
+  let data = sessaoNova
+
+  if (!data) {
+    const { data: sessaoLegada } = await supabase
+      .from("sessoes")
+      .select("estado, atualizado_em")
+      .eq("contato_hash", hashLegado)
+      .single()
+    data = sessaoLegada
+  }
 
   if (!data) return sessaoVazia()
 
@@ -41,7 +53,7 @@ export async function carregarSessao(telefone: string): Promise<Sessao> {
 }
 
 export async function salvarSessao(telefone: string, sessao: Sessao): Promise<void> {
-  const hash = contatoHash(telefone)
+  const hash = hashContato(telefone)
   await supabase.from("sessoes").upsert({
     contato_hash: hash,
     estado: sessao,
@@ -50,8 +62,8 @@ export async function salvarSessao(telefone: string, sessao: Sessao): Promise<vo
 }
 
 export async function limparSessao(telefone: string): Promise<void> {
-  const hash = contatoHash(telefone)
-  await supabase.from("sessoes").delete().eq("contato_hash", hash)
+  const hashes = [hashContato(telefone), hashContatoLegado(telefone)]
+  await supabase.from("sessoes").delete().in("contato_hash", hashes)
 }
 
 function sessaoVazia(): Sessao {
@@ -63,6 +75,10 @@ function sessaoVazia(): Sessao {
     profissionaisIndicados: [],
     tentativasEsclarecimento: 0,
     ultimaIntencao: null,
+    categoriasPendentes: [],
+    servicosNaFila: [],
+    servicoAtual: null,
+    aguardandoConfirmacaoServico: false,
     primeiraInteracao: true,
   }
 }
