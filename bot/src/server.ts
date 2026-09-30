@@ -15,48 +15,36 @@ import { mensagens } from "./messages"
 
 const app = Fastify({ logger: true })
 
-// ─── Tipos do payload Evolution API ─────────────────────────────────────────
+// ─── Tipos do payload Evolution API v2 ──────────────────────────────────────
 
-interface ZApiWebhookPayload {
-  instanceId: string
-  messageId: string
-  phone: string           // número do remetente
-  fromMe: boolean         // true se foi o bot que enviou
-  momment: number         // timestamp
-  status: string
-  chatName: string        // nome do contato
-  senderPhoto?: string
-  senderName: string
-  participantPhone?: string
-  photo?: string
-  broadcast: boolean
-  type: string            // "ReceivedCallback" | "DeliveryCallback" | etc
-  text?: {
-    message: string
+interface EvolutionWebhookPayload {
+  event: string
+  instance: string
+  data: {
+    key: {
+      remoteJid: string
+      fromMe: boolean
+      id: string
+      participant?: string
+    }
+    pushName?: string
+    message?: {
+      conversation?: string
+      extendedTextMessage?: { text?: string }
+    }
+    messageType?: string
+    status?: string
   }
-  image?: { caption?: string }
-  audio?: object
-  video?: { caption?: string }
-  document?: object
-  isGroup: boolean
-}
-
-interface ZApiStatusPayload {
-  messageId: string
-  phone: string
-  status: "PENDING" | "SENT" | "RECEIVED" | "READ" | "PLAYED" | "ERROR"
-  momment: number
-  type: string            // "MessageStatusCallback"
 }
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 
 app.get("/", async () => {
-  const zapiConectado = await verificarConexao()
+  const conectado = await verificarConexao()
   return {
     status: "ok",
     service: "profiza-bot",
-    zapi: zapiConectado ? "conectado" : "desconectado",
+    evolution: conectado ? "conectado" : "desconectado",
     timestamp: new Date().toISOString(),
   }
 })
@@ -72,26 +60,22 @@ const TEMPO_PAUSA_MS = 12000 // Aguarda 12 segundos de inatividade
 
 // ─── Webhook Evolution API ───────────────────────────────────────────────────
 
-app.post<{ Body: ZApiWebhookPayload }>("/webhook", async (request, reply) => {
-  const secret = request.headers["x-webhook-secret"] ?? request.headers["apikey"]
-  if (secret && secret !== config.webhookSecret) {
-    return reply.status(401).send({ error: "Unauthorized" })
-  }
-
+app.post<{ Body: EvolutionWebhookPayload }>("/webhook", async (request, reply) => {
   const payload = request.body
-  console.log("[webhook] payload:", JSON.stringify(payload))
 
-  // Ignora mensagens enviadas pelo próprio bot, grupos e não-texto
-  if (payload.fromMe) return reply.send({ ok: true })
-  if (payload.isGroup) return reply.send({ ok: true })
-  if (payload.type !== "ReceivedCallback") return reply.send({ ok: true })
-  if (!payload.text?.message) return reply.send({ ok: true })
+  if (payload.event !== "messages.upsert") return reply.send({ ok: true })
 
-  const texto = payload.text.message.trim()
+  const { key, pushName, message, messageType } = payload.data
+
+  if (key.fromMe) return reply.send({ ok: true })
+  if (key.remoteJid.endsWith("@g.us")) return reply.send({ ok: true })
+  if (messageType !== "conversation" && messageType !== "extendedTextMessage") return reply.send({ ok: true })
+
+  const texto = (message?.conversation ?? message?.extendedTextMessage?.text ?? "").trim()
   if (!texto) return reply.send({ ok: true })
 
-  const telefone = payload.phone
-  const nome = payload.senderName || payload.chatName || "Cliente"
+  const telefone = key.remoteJid.replace("@s.whatsapp.net", "")
+  const nome = pushName || "Cliente"
 
   // Logica de buffer
   const bufferAtual = messageBuffer.get(telefone)
@@ -128,13 +112,10 @@ app.post<{ Body: ZApiWebhookPayload }>("/webhook", async (request, reply) => {
 
 app.get("/webhook/status", async () => ({ ok: true }))
 
-app.post<{ Body: ZApiStatusPayload }>("/webhook/status", async (request, reply) => {
-  const secret = request.headers["x-webhook-secret"] ?? request.headers["apikey"]
-  if (secret && secret !== config.webhookSecret) {
-    return reply.status(401).send({ error: "Unauthorized" })
-  }
-
-  const { messageId, status } = request.body
+app.post<{ Body: EvolutionWebhookPayload }>("/webhook/status", async (request, reply) => {
+  const payload = request.body
+  const messageId = payload.data?.key?.id
+  const status = payload.data?.status ?? ""
 
   if (!messageId) return reply.send({ ok: true })
 
