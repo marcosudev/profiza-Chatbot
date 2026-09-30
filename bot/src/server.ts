@@ -57,7 +57,7 @@ app.get("/", async () => {
 
 // ─── Webhook Evolution API ────────────────────────────────────────────────────
 
-app.post<{ Body: EvolutionWebhookPayload }>("/webhook", async (request, reply) => {
+app.post<{ Body: EvolutionWebhookPayload; Querystring: { secret?: string } }>("/webhook", async (request, reply) => {
   // RNF-04 — valida WEBHOOK_SECRET
   const secret = request.headers["x-webhook-secret"] ?? request.query?.secret
   if (config.webhookSecret && secret !== config.webhookSecret) {
