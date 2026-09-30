@@ -48,6 +48,9 @@ CREATE TABLE IF NOT EXISTS public.bairros (
 CREATE INDEX IF NOT EXISTS idx_bairros_nome ON public.bairros(nome);
 CREATE INDEX IF NOT EXISTS idx_bairros_cidade ON public.bairros(cidade_id);
 
+-- Corrige tipo do profissional_id na tabela faturas (era TEXT, deve ser UUID)
+ALTER TABLE public.faturas ALTER COLUMN profissional_id TYPE UUID USING profissional_id::UUID;
+
 -- Relação profissional ↔ bairros (substitui o array bairros[])
 CREATE TABLE IF NOT EXISTS public.profissional_bairros (
   profissional_id UUID REFERENCES public.profissionais(id) ON DELETE CASCADE,
