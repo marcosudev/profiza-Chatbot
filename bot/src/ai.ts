@@ -1,72 +1,103 @@
 import OpenAI from "openai"
 import { config } from "./config"
-import { buscarCategoriasEBairrosAtivos } from "./supabase"
+import { bairros, resolverBairro } from "./knowledge/bairros-bauru"
+import { categorias, slugsValidos, resolverCategoria } from "./knowledge/categorias"
+import { promptSistema } from "./knowledge/institucional"
+import type { Sessao } from "./session"
 
 const openai = new OpenAI({ apiKey: config.openai.apiKey })
+
+const LLM_MODEL = process.env.LLM_MODEL ?? "gpt-4o-mini"
 
 export interface Intencao {
   categoria: string | null
   bairro: string | null
-  confianca: "alta" | "media" | "baixa"
+  regiao: string | null
+  intencao: "busca_profissional" | "mais_opcoes" | "feedback" | "cadastro_profissional" | "emergencia" | "fora_escopo" | "saudacao"
+  confianca: number
+  mensagem: string
 }
 
-export async function extrairIntencao(mensagem: string): Promise<Intencao> {
+function montarContextoBairros(): string {
+  const porRegiao: Record<string, string[]> = {}
+  for (const b of bairros) {
+    if (!porRegiao[b.regiao]) porRegiao[b.regiao] = []
+    porRegiao[b.regiao].push(b.nome)
+  }
+  return Object.entries(porRegiao)
+    .map(([regiao, nomes]) => `${regiao}: ${nomes.join(", ")}`)
+    .join("\n")
+}
+
+function montarContextoCategorias(): string {
+  return categorias.map(c => `${c.slug} (${c.label})`).join(", ")
+}
+
+export async function extrairIntencao(
+  mensagem: string,
+  sessao: Sessao
+): Promise<Intencao> {
+  // Tenta resolver localmente antes de chamar a IA (mais rápido e barato)
+  const catLocal = resolverCategoria(mensagem)
+  const bairroLocal = resolverBairro(mensagem)
+
+  const contextoSessao = sessao.categoria || sessao.bairro
+    ? `\nCONTEXTO DA SESSÃO ATUAL: categoria=${sessao.categoria ?? "não definida"}, bairro=${sessao.bairro ?? "não definido"}`
+    : ""
+
+  const system = promptSistema(montarContextoBairros(), montarContextoCategorias()) + contextoSessao
+
   try {
-    const { categorias, bairros } = await buscarCategoriasEBairrosAtivos()
-
-    const systemPrompt = `Você é um extrator de intenção para um serviço de profissionais em Bauru/SP.
-
-Dado o texto de um cliente (que pode conter múltiplas mensagens juntas), extraia:
-- categoria: o tipo de serviço solicitado. Se o usuário relatar um problema (ex: "chuveiro queimou", "tomada não funciona", "vazamento"), deduza qual o profissional adequado.
-- bairro: o bairro mencionado
-
-Categorias válidas: ${categorias.join(", ")}
-Bairros válidos: ${bairros.join(", ")}
-
-Regras:
-- Retorne APENAS JSON válido, sem markdown, sem explicação
-- Se não encontrar categoria e não conseguir deduzir do problema relatado, retorne null
-- Se o usuário pedir "mais opções", "mais contatos" ou repetir uma busca recente, tente manter a categoria deduzida anteriormente ou retorne null para usar o contexto.
-- Se não encontrar bairro, retorne null  
-- Normalize variações: "luz" → "Eletricista", "vazamento" -> "Encanador", "faxina" -> "Limpeza/Diarista"
-- Normalize bairros: "centro", "no centro" → "Centro"
-- confianca: "alta" se ambos encontrados, "media" se só categoria, "baixa" se nenhum
-
-Formato de resposta:
-{"categoria": "Eletricista", "bairro": "Centro", "confianca": "alta"}`
-
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: LLM_MODEL,
       messages: [
-        { role: "system", content: systemPrompt },
+        { role: "system", content: system },
         { role: "user", content: mensagem },
       ],
       temperature: 0,
-      max_tokens: 100,
+      max_tokens: 200,
       response_format: { type: "json_object" },
     })
 
     const content = response.choices[0]?.message?.content
-    if (!content) return { categoria: null, bairro: null, confianca: "baixa" }
+    if (!content) return fallback(catLocal, bairroLocal)
 
-    const parsed = JSON.parse(content) as Intencao
+    const parsed = JSON.parse(content) as Partial<Intencao>
 
-    // Valida que os valores retornados existem nas listas dinâmicas
-    const categoriaValida = categorias.find(
-      (c) => c.toLowerCase() === parsed.categoria?.toLowerCase()
-    ) ?? parsed.categoria ?? null
+    // Valida categoria contra slugs válidos
+    const categoria = parsed.categoria && slugsValidos.includes(parsed.categoria)
+      ? parsed.categoria
+      : catLocal?.slug ?? null
 
-    const bairroValido = bairros.find(
-      (b) => b.toLowerCase() === parsed.bairro?.toLowerCase()
-    ) ?? parsed.bairro ?? null
+    // Valida bairro contra lista oficial
+    const bairroResolvido = parsed.bairro
+      ? resolverBairro(parsed.bairro) ?? bairroLocal
+      : bairroLocal
 
     return {
-      categoria: categoriaValida,
-      bairro: bairroValido,
-      confianca: categoriaValida && bairroValido ? "alta" : categoriaValida ? "media" : "baixa",
+      categoria,
+      bairro: bairroResolvido?.bairro ?? null,
+      regiao: bairroResolvido?.regiao ?? parsed.regiao ?? null,
+      intencao: parsed.intencao ?? "busca_profissional",
+      confianca: parsed.confianca ?? 0.5,
+      mensagem: parsed.mensagem ?? "",
     }
   } catch (err) {
     console.error("[ai] Erro ao extrair intenção:", err)
-    return { categoria: null, bairro: null, confianca: "baixa" }
+    return fallback(catLocal, bairroLocal)
+  }
+}
+
+function fallback(
+  catLocal: ReturnType<typeof resolverCategoria>,
+  bairroLocal: ReturnType<typeof resolverBairro>
+): Intencao {
+  return {
+    categoria: catLocal?.slug ?? null,
+    bairro: bairroLocal?.bairro ?? null,
+    regiao: bairroLocal?.regiao ?? null,
+    intencao: "busca_profissional",
+    confianca: 0.3,
+    mensagem: "",
   }
 }

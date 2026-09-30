@@ -66,3 +66,26 @@ export async function verificarConexao(): Promise<boolean> {
     return false
   }
 }
+
+// Envia indicador de "digitando..." ou "pausado"
+export async function enviarPresenca(
+  para: string,
+  presence: "composing" | "paused"
+): Promise<void> {
+  const numero = normalizarNumero(para)
+  try {
+    await fetch(
+      `${config.evolution.baseUrl}/chat/sendPresence/${config.evolution.instance}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: config.evolution.apiKey,
+        },
+        body: JSON.stringify({ number: numero, presence, delay: 1000 }),
+      }
+    )
+  } catch {
+    // Presença é best-effort, não bloqueia o fluxo
+  }
+}

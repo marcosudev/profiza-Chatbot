@@ -97,13 +97,9 @@ export const mensagens = {
   // Não entendeu a mensagem (sem categoria)
   naoEntendeu(categoriasTexto?: string): string {
     return [
-      `Olá! Sou o assistente do *Profiza* 👋`,
+      `Olá! Sou o assistente da *Profiza*.`,
       ``,
-      `Posso te ajudar a encontrar profissionais como:`,
-      categoriasTexto || `• Eletricista\n• Encanador\n• Pedreiro\n• Pintor\n• Borracheiro\n• Mecânico\n• Jardinagem\n• Montador de Móveis\n• Ar-condicionado\n• Informática\n• Serralheiro\n• e muitos outros...`,
-      ``,
-      `Me diga o que você precisa e em qual bairro de Bauru. Por exemplo:`,
-      `_"Preciso de um eletricista no Centro"_ ou _"Meu chuveiro queimou"_.`,
+      `Me diga o serviço que precisa e o bairro em Bauru que eu encontro o profissional ideal para você! 🔧👷`,
     ].join("\n")
   },
 
@@ -122,5 +118,31 @@ export const mensagens = {
   // Erro interno
   erroInterno(): string {
     return "Desculpe, tive um problema técnico. Tente novamente em alguns instantes. 🙏"
+  },
+
+  emergencia(): string {
+    return [
+      "⚠️ Isso parece uma emergência!",
+      "",
+      "Acione imediatamente:",
+      "🚒 Bombeiros: 193",
+      "🚑 SAMU: 192",
+      "",
+      "Depois que estiver seguro, me avise que indico um profissional para o reparo! 🔧",
+    ].join("\n")
+  },
+
+  cadastroProfissional(): string {
+    return [
+      "Quer se cadastrar como profissional na Profiza? 👷",
+      "",
+      "Acesse: profiza.net/cadastro",
+      "",
+      "30 dias grátis, depois R$ 29,90/mês. Cancelamento a qualquer momento!",
+    ].join("\n")
+  },
+
+  foraEscopo(): string {
+    return "Sou especializado em indicar profissionais em Bauru. Me conta qual serviço você precisa e em qual bairro! 🔧👷"
   },
 }

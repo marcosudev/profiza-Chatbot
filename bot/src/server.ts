@@ -1,7 +1,9 @@
 import Fastify from "fastify"
 import { config } from "./config"
-import { processarMensagem } from "./bot"
-import { verificarConexao } from "./evolution"
+import { processarLote } from "./bot"
+import { verificarConexao, enviarMensagem } from "./evolution"
+import { adicionarAoBuffer } from "./buffer"
+import { transcreverAudio, obterAudioBase64 } from "./audio"
 import {
   buscarRelatoriosSemanais,
   buscarLeadPorMensagemId,
@@ -10,12 +12,11 @@ import {
   reservarRelatorioSemanal,
   registrarLog,
 } from "./supabase"
-import { enviarMensagem } from "./evolution"
 import { mensagens } from "./messages"
 
 const app = Fastify({ logger: true })
 
-// ─── Tipos do payload Evolution API v2 ──────────────────────────────────────
+// ─── Tipos do payload Evolution API v2 ───────────────────────────────────────
 
 interface EvolutionWebhookPayload {
   event: string
@@ -31,6 +32,7 @@ interface EvolutionWebhookPayload {
     message?: {
       conversation?: string
       extendedTextMessage?: { text?: string }
+      audioMessage?: { url?: string; mimetype?: string; ptt?: boolean }
     }
     messageType?: string
     status?: string
@@ -49,16 +51,7 @@ app.get("/", async () => {
   }
 })
 
-// ─── Buffer de Mensagens (Pausas Inteligentes) ──────────────────────────────
-const messageBuffer = new Map<string, {
-  textos: string[],
-  nome: string,
-  timeout: NodeJS.Timeout
-}>()
-
-const TEMPO_PAUSA_MS = 12000 // Aguarda 12 segundos de inatividade
-
-// ─── Webhook Evolution API ───────────────────────────────────────────────────
+// ─── Webhook Evolution API ────────────────────────────────────────────────────
 
 app.post<{ Body: EvolutionWebhookPayload }>("/webhook", async (request, reply) => {
   const payload = request.body
@@ -69,46 +62,80 @@ app.post<{ Body: EvolutionWebhookPayload }>("/webhook", async (request, reply) =
 
   if (key.fromMe) return reply.send({ ok: true })
   if (key.remoteJid.endsWith("@g.us")) return reply.send({ ok: true })
-  if (messageType !== "conversation" && messageType !== "extendedTextMessage") return reply.send({ ok: true })
-
-  const texto = (message?.conversation ?? message?.extendedTextMessage?.text ?? "").trim()
-  if (!texto) return reply.send({ ok: true })
 
   const telefone = key.remoteJid.replace("@s.whatsapp.net", "")
   const nome = pushName || "Cliente"
+  const messageId = key.id
 
-  // Logica de buffer
-  const bufferAtual = messageBuffer.get(telefone)
-  if (bufferAtual) {
-    clearTimeout(bufferAtual.timeout)
-    bufferAtual.textos.push(texto)
-  } else {
-    messageBuffer.set(telefone, {
-      textos: [texto],
+  // Texto
+  if (messageType === "conversation" || messageType === "extendedTextMessage") {
+    const texto = (message?.conversation ?? message?.extendedTextMessage?.text ?? "").trim()
+    if (!texto) return reply.send({ ok: true })
+
+    adicionarAoBuffer(
+      telefone,
+      { tipo: "texto", conteudo: texto, messageId },
       nome,
-      timeout: setTimeout(() => {}, 0) // será reescrito abaixo
-    })
+      processarLote
+    )
+    return reply.send({ ok: true })
   }
 
-  const novoBuffer = messageBuffer.get(telefone)!
-  novoBuffer.timeout = setTimeout(() => {
-    // Quando o timer estoura, processa todas as mensagens juntas
-    const textoAgrupado = novoBuffer.textos.join("\n")
-    messageBuffer.delete(telefone)
+  // Áudio
+  if (messageType === "audioMessage") {
+    // Avisa recepção e transcreve em background
+    setImmediate(async () => {
+      try {
+        const audio = await obterAudioBase64(
+          config.evolution.baseUrl,
+          config.evolution.instance,
+          config.evolution.apiKey,
+          messageId
+        )
 
-    processarMensagem({
-      telefone,
-      nome: novoBuffer.nome,
-      texto: textoAgrupado,
-    }).catch((err) => {
-      console.error("[webhook] Erro ao processar mensagem agrupada:", err)
+        if (!audio) {
+          await enviarMensagem(telefone, "Não consegui entender o áudio. Pode digitar sua mensagem? 😊")
+          return
+        }
+
+        const transcricao = await transcreverAudio(audio.base64, audio.mimeType)
+
+        if (!transcricao) {
+          await enviarMensagem(telefone, "Não consegui entender o áudio. Pode digitar sua mensagem? 😊")
+          return
+        }
+
+        adicionarAoBuffer(
+          telefone,
+          { tipo: "texto", conteudo: transcricao, messageId },
+          nome,
+          processarLote
+        )
+      } catch (err) {
+        console.error("[webhook] Erro ao processar áudio:", err)
+      }
     })
-  }, TEMPO_PAUSA_MS)
+
+    return reply.send({ ok: true })
+  }
+
+  // Imagem, sticker, etc.
+  if (messageType === "imageMessage" || messageType === "stickerMessage") {
+    adicionarAoBuffer(
+      telefone,
+      { tipo: "texto", conteudo: "__midia__", messageId },
+      nome,
+      async ({ telefone }) => {
+        await enviarMensagem(telefone, "Recebi sua imagem! Me conta em texto o que você precisa 😊")
+      }
+    )
+    return reply.send({ ok: true })
+  }
 
   return reply.send({ ok: true })
 })
 
-// ─── Webhook Status Evolution API (confirmação de entrega) ──────────────────
+// ─── Webhook Status Evolution API ────────────────────────────────────────────
 
 app.get("/webhook/status", async () => ({ ok: true }))
 
@@ -119,23 +146,19 @@ app.post<{ Body: EvolutionWebhookPayload }>("/webhook/status", async (request, r
 
   if (!messageId) return reply.send({ ok: true })
 
-  // Processa async
   setImmediate(async () => {
     try {
       const lead = await buscarLeadPorMensagemId(messageId)
       if (!lead) return
 
-      // Atualiza status de entrega
       await atualizarStatusEntrega(lead.id, status)
 
-      // Se entregue ou lido, confirma e cobra
       if (status === "RECEIVED" || status === "READ") {
         if (!lead.cobrado && lead.status !== "falhou" && lead.status !== "cancelado") {
           await confirmarEntregaECobrar(lead.id)
         }
       }
 
-      // Se erro, marca como falhou
       if (status === "ERROR") {
         await registrarLog("lead", lead.id, "envio_falhou", { status })
       }
@@ -147,6 +170,8 @@ app.post<{ Body: EvolutionWebhookPayload }>("/webhook/status", async (request, r
   return reply.send({ ok: true })
 })
 
+// ─── Relatórios semanais ──────────────────────────────────────────────────────
+
 function dataNoFusoBauru(): { data: string; hora: number; diaSemana: number } {
   const partes = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Sao_Paulo",
@@ -157,7 +182,7 @@ function dataNoFusoBauru(): { data: string; hora: number; diaSemana: number } {
     weekday: "short",
     hourCycle: "h23",
   }).formatToParts(new Date())
-  const get = (type: string) => partes.find((parte) => parte.type === type)?.value ?? ""
+  const get = (type: string) => partes.find((p) => p.type === type)?.value ?? ""
   const dias: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
   return {
     data: `${get("year")}-${get("month")}-${get("day")}`,
@@ -177,18 +202,13 @@ async function enviarRelatoriosSemanais(): Promise<void> {
   for (const relatorio of relatorios) {
     const reservado = await reservarRelatorioSemanal(relatorio.id, agora.data)
     if (!reservado) continue
-
-    await enviarMensagem(
-      relatorio.whatsapp,
-      mensagens.relatorioSemanal(relatorio)
-    )
+    await enviarMensagem(relatorio.whatsapp, mensagens.relatorioSemanal(relatorio))
   }
 }
 
-// O registro único por profissional/semana impede duplicidade após reinícios.
 setInterval(() => {
   enviarRelatoriosSemanais().catch((err) => {
-    console.error("[relatorio] Erro ao enviar resumos semanais:", err)
+    console.error("[relatorio] Erro:", err)
   })
 }, 60 * 60 * 1000)
 
