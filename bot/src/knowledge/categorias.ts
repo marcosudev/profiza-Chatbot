@@ -111,6 +111,14 @@ export const categorias: Categoria[] = [
       "limpeza residencial", "limpeza comercial",
     ],
   },
+  {
+    slug: "telhadista",
+    label: "Telhadista",
+    sinonimos: [
+      "telhado", "goteira", "telha", "calha", "infiltração no teto",
+      "goteira no telhado", "conserto de telhado",
+    ],
+  },
 ]
 
 export const slugsValidos = categorias.map(c => c.slug)

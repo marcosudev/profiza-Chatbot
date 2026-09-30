@@ -1,3 +1,4 @@
+import { config } from "./config"
 import { extrairIntencao } from "./ai"
 import { categorias, resolverCategoriaPendente } from "./knowledge/categorias"
 import { carregarSessao, salvarSessao, type Sessao } from "./session"
@@ -18,6 +19,7 @@ import {
   registrarMetricaMensagem,
   registrarInteresseCidade,
   apagarDadosContato,
+  registrarFeedbackCliente,
 } from "./supabase"
 import { enviarMensagem, enviarPresenca } from "./evolution"
 import { mensagens } from "./messages"
@@ -100,6 +102,21 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
       await enviarMensagem(telefone, mensagens.semFeedbackPendente())
     }
     return
+  }
+
+  // Verifica se é cliente respondendo ao feedback 48h (👍 / 👎)
+  const isPositivo = /👍|deu certo|ótimo|otimo|gostei|bom/i.test(textos.trim())
+  const isNegativo = /👎|ruim|péssimo|pessimo|problema|não gostei|nao gostei/i.test(textos.trim())
+  if (isPositivo || isNegativo) {
+    const feedbackCliente = await registrarFeedbackCliente(telefone, isPositivo)
+    if (feedbackCliente.registrado) {
+      await enviarPresenca(telefone, "paused")
+      const msg = isPositivo
+        ? mensagens.agradecerFeedbackClientePositivo()
+        : mensagens.agradecerFeedbackClienteNegativo()
+      await enviarMensagem(telefone, msg)
+      return
+    }
   }
 
   // Carrega sessão persistida
@@ -286,14 +303,8 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
   const profissionais = await buscarProfissionais(categoria, bairro, ignoreIds, 4)
 
   if (profissionais.length > 0) {
-    // Carrega bairros de cada profissional para exibição
     for (const prof of profissionais) {
       prof.bairros = await carregarBairrosDoProfissional(prof.id)
-    }
-
-    const proximoServico = prepararProximoServico(sessao)
-    const envio = await enviarMensagem(telefone, mensagens.profissionalEncontrado(profissionais, categoria, bairro, proximoServico))
-    for (const prof of profissionais) {
       sessao.profissionaisIndicados.push(prof.id)
       const leadId = await salvarLead({
         nomeCliente: nome,
@@ -305,9 +316,20 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
         mensagemOriginal: textos,
         prioridadeMatch: 1,
       })
-      if (leadId && envio.messageId) await atualizarLeadMensagemId(leadId, envio.messageId)
+      if (leadId) {
+        prof.leadId = leadId
+        prof.linkContato = `${config.publicUrl}/c/${leadId}`
+      }
+    }
+
+    const proximoServico = prepararProximoServico(sessao)
+    const envio = await enviarMensagem(telefone, mensagens.profissionalEncontrado(profissionais, categoria, bairro, proximoServico))
+
+    for (const prof of profissionais) {
+      if (prof.leadId && envio.messageId) await atualizarLeadMensagemId(prof.leadId, envio.messageId)
       await enviarMensagem(prof.whatsapp, mensagens.feedbackProfissional(categoria, bairro))
     }
+
     await salvarSessao(telefone, sessao)
     await registrarMetricaMensagem({
       contatoHash: hashContato(telefone),
@@ -327,11 +349,6 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
   if (fallbacks.length > 0) {
     for (const prof of fallbacks) {
       prof.bairros = await carregarBairrosDoProfissional(prof.id)
-    }
-
-    const proximoServico = prepararProximoServico(sessao)
-    const envio = await enviarMensagem(telefone, mensagens.profissionalFallback(fallbacks, categoria, bairro, proximoServico))
-    for (const prof of fallbacks) {
       sessao.profissionaisIndicados.push(prof.id)
       const leadId = await salvarLead({
         nomeCliente: nome,
@@ -343,9 +360,20 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
         mensagemOriginal: textos,
         prioridadeMatch: 3,
       })
-      if (leadId && envio.messageId) await atualizarLeadMensagemId(leadId, envio.messageId)
+      if (leadId) {
+        prof.leadId = leadId
+        prof.linkContato = `${config.publicUrl}/c/${leadId}`
+      }
+    }
+
+    const proximoServico = prepararProximoServico(sessao)
+    const envio = await enviarMensagem(telefone, mensagens.profissionalFallback(fallbacks, categoria, bairro, proximoServico))
+
+    for (const prof of fallbacks) {
+      if (prof.leadId && envio.messageId) await atualizarLeadMensagemId(prof.leadId, envio.messageId)
       await enviarMensagem(prof.whatsapp, mensagens.feedbackProfissional(categoria, bairro))
     }
+
     await salvarSessao(telefone, sessao)
     await registrarMetricaMensagem({
       contatoHash: hashContato(telefone),

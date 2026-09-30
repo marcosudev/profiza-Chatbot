@@ -60,12 +60,15 @@ export default function LoginPage() {
         {/* Logo */}
         <div className="relative z-10 flex items-center gap-3">
           <div
-            className="flex h-9 w-9 items-center justify-center rounded-xl text-sm font-bold"
-            style={{ backgroundColor: "var(--primary)", color: "var(--primary-foreground)" }}
+            className="flex h-9 w-9 items-center justify-center rounded-xl font-display text-sm font-bold text-white shadow-sm"
+            style={{ backgroundColor: "#65A30D" }}
           >
             P
           </div>
-          <span className="text-lg font-semibold tracking-tight text-white">Profiza</span>
+          <span className="font-display text-2xl font-extrabold tracking-tight">
+            <span className="text-white">Prof</span>
+            <span style={{ color: "#65A30D" }}>iza</span>
+          </span>
         </div>
 
         {/* Citação central */}

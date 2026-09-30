@@ -12,6 +12,8 @@ export interface Profissional {
   bairros: string[]
   regiao: string | null
   status: string
+  leadId?: string
+  linkContato?: string
 }
 
 // ─── Busca de profissionais ───────────────────────────────────────────────────
@@ -635,3 +637,114 @@ export async function registrarMetricaMensagem(dados: {
     criado_em: new Date().toISOString(),
   })
 }
+
+// ─── Rastreio de Cliques & Redirecionamento ──────────────────────────────────
+
+export interface InfoRedirecionamentoLead {
+  leadId: string
+  profissionalWhatsapp: string
+  categoria: string
+  bairro: string
+}
+
+export async function buscarLeadParaRedirecionamento(leadId: string): Promise<InfoRedirecionamentoLead | null> {
+  const { data, error } = await supabase
+    .from("leads")
+    .select(`
+      id, categoria, bairro,
+      profissionais(whatsapp)
+    `)
+    .eq("id", leadId)
+    .maybeSingle()
+
+  if (error || !data) return null
+
+  const prof = data.profissionais as any
+  const whatsapp = prof?.whatsapp ?? null
+  if (!whatsapp) return null
+
+  return {
+    leadId: data.id,
+    profissionalWhatsapp: whatsapp,
+    categoria: data.categoria,
+    bairro: data.bairro ?? "Bauru",
+  }
+}
+
+export async function registrarCliqueContato(leadId: string): Promise<void> {
+  await Promise.all([
+    supabase.from("cliques_contato").insert({ lead_id: leadId }),
+    supabase.from("leads").update({ status: "contato_enviado" }).eq("id", leadId),
+  ])
+}
+
+// ─── Feedback do Cliente (48h Pós-Lead) ──────────────────────────────────────
+
+export interface LeadFeedbackCliente {
+  leadId: string
+  contatoHash: string
+  whatsappCliente: string
+  categoria: string
+  nomeProfissional: string
+}
+
+export async function buscarLeadsParaFeedbackCliente(): Promise<LeadFeedbackCliente[]> {
+  const quarentaEOitoHorasAtras = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
+  const setentaEDuasHorasAtras = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString()
+
+  const { data, error } = await supabase
+    .from("leads")
+    .select(`
+      id, contato_hash, whatsapp_cliente, categoria,
+      profissionais(nome)
+    `)
+    .not("profissional_id", "is", null)
+    .is("cliente_feedback", null)
+    .gte("created_at", setentaEDuasHorasAtras)
+    .lte("created_at", quarentaEOitoHorasAtras)
+
+  if (error || !data) return []
+
+  return data.map((d: any) => ({
+    leadId: d.id,
+    contatoHash: d.contato_hash,
+    whatsappCliente: d.whatsapp_cliente,
+    categoria: d.categoria,
+    nomeProfissional: d.profissionais?.nome ?? "o profissional indicado",
+  }))
+}
+
+export async function registrarFeedbackCliente(
+  telefone: string,
+  satisfeito: boolean
+): Promise<{ registrado: boolean; leadId?: string; profissionalId?: string }> {
+  const hash = hashContato(telefone)
+
+  const { data: lead } = await supabase
+    .from("leads")
+    .select("id, profissional_id")
+    .or(`contato_hash.eq.${hash},whatsapp_cliente.eq.${telefone}`)
+    .not("profissional_id", "is", null)
+    .is("cliente_feedback", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (!lead) return { registrado: false }
+
+  const feedbackStatus = satisfeito ? "positivo" : "negativo"
+  await supabase
+    .from("leads")
+    .update({
+      cliente_feedback: feedbackStatus,
+      cliente_feedback_at: new Date().toISOString(),
+    })
+    .eq("id", lead.id)
+
+  if (!satisfeito) {
+    await registrarOcorrencia(lead.profissional_id, lead.id, "Cliente deu feedback negativo no atendimento (👍 / 👎)")
+  }
+
+  return { registrado: true, leadId: lead.id, profissionalId: lead.profissional_id }
+}
+

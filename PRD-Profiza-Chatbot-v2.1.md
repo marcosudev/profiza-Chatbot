@@ -606,3 +606,52 @@ Total estimado: ~5 semanas (o rascunho anterior previa 2, mas não incluía dado
 ## 14. Considerações finais
 
 A v2.1 preserva a proposta original (conversa natural, áudio, buffer, localização) e reforça o que sustenta a confiança na Profiza: dados oficiais, resultados determinísticos, privacidade e medição contínua. O bot deve ser lembrado como aquele que **entende o cliente na primeira tentativa e nunca indica quem não existe**.
+
+---
+
+## 15. Status Atual da Implantação e Mapeamento de Pendências (v2.3)
+
+### 15.1 Matriz de Funcionalidades vs. Código Implantado
+
+| Requisito | Descrição | Status no Código | Arquivos / Localização |
+|---|---|---|---|
+| **RF-01** | Buffer de mensagens (debounce 8s / teto 60s / deduplicação) | ✅ **Implantado** | [buffer.ts](file:///Users/marco/Documents/Profiza%20Chatbot/bot/src/buffer.ts), [server.ts](file:///Users/marco/Documents/Profiza%20Chatbot/bot/src/server.ts) |
+| **RF-02** | Áudio via Whisper (OGG base64, avisos, limite 2min, fallbacks) | ✅ **Implantado** | [audio.ts](file:///Users/marco/Documents/Profiza%20Chatbot/bot/src/audio.ts), [server.ts](file:///Users/marco/Documents/Profiza%20Chatbot/bot/src/server.ts) |
+| **RF-03** | Identificação de serviço (dicionário sinônimos, desambiguação, múltiplos serviços) | ✅ **Implantado** | [categorias.ts](file:///Users/marco/Documents/Profiza%20Chatbot/bot/src/knowledge/categorias.ts), [ai.ts](file:///Users/marco/Documents/Profiza%20Chatbot/bot/src/ai.ts) |
+| **RF-04** | Localização, Bairros e Geolocalização (`locationMessage` -> bairro) | ✅ **Implantado** | [bairros-bauru.ts](file:///Users/marco/Documents/Profiza%20Chatbot/bot/src/knowledge/bairros-bauru.ts), [geo.ts](file:///Users/marco/Documents/Profiza%20Chatbot/bot/src/geo.ts) |
+| **RF-05** | Sessão e Memória persistida no Supabase (TTL 30 min, estado, rodízio) | ✅ **Implantado** | [session.ts](file:///Users/marco/Documents/Profiza%20Chatbot/bot/src/session.ts), tabela `sessoes` |
+| **RF-06** | Base de Conhecimento e Prompt Estático Institucional | ✅ **Implantado** | [institucional.ts](file:///Users/marco/Documents/Profiza%20Chatbot/bot/src/knowledge/institucional.ts) |
+| **RF-07** | Busca e Ranqueamento (Bairro -> Região -> Cidade, rodízio `ultimo_lead_em`) | ✅ **Implantado** | [supabase.ts](file:///Users/marco/Documents/Profiza%20Chatbot/bot/src/supabase.ts) (`buscarProfissionais`) |
+| **RF-08** | Resposta com template seguro e link rastreável | ✅ **Implantado** | [messages.ts](file:///Users/marco/Documents/Profiza%20Chatbot/bot/src/messages.ts), [bot.ts](file:///Users/marco/Documents/Profiza%20Chatbot/bot/src/bot.ts) |
+| **RF-09** | Feedback do Profissional (WhatsApp 1-5) e Relatório Semanal | ✅ **Implantado** | [supabase.ts](file:///Users/marco/Documents/Profiza%20Chatbot/bot/src/supabase.ts), [server.ts](file:///Users/marco/Documents/Profiza%20Chatbot/bot/src/server.ts) |
+| **RF-09** | Feedback do Cliente (disparo 48h pós-lead) e Redirecionador HTTP (`profiza.net/c/{lead_id}`) | ✅ **Implantado** | [server.ts](file:///Users/marco/Documents/Profiza%20Chatbot/bot/src/server.ts) (`GET /c/:lead_id`), [supabase.ts](file:///Users/marco/Documents/Profiza%20Chatbot/bot/src/supabase.ts) |
+| **RF-10** | Indicador "digitando..." (`composing` / `paused`) | ✅ **Implantado** | [evolution.ts](file:///Users/marco/Documents/Profiza%20Chatbot/bot/src/evolution.ts), [bot.ts](file:///Users/marco/Documents/Profiza%20Chatbot/bot/src/bot.ts) |
+| **RF-11** | Casos especiais (emergência, preços, cadastro prof., fora de escopo, LGPD) | ✅ **Implantado** | [bot.ts](file:///Users/marco/Documents/Profiza%20Chatbot/bot/src/bot.ts), [privacidade.ts](file:///Users/marco/Documents/Profiza%20Chatbot/bot/src/privacidade.ts) |
+| **RF-12** | Fluxo Orquestrador Completo | ✅ **Implantado** | [bot.ts](file:///Users/marco/Documents/Profiza%20Chatbot/bot/src/bot.ts) |
+| **RF-13** | Assinatura Mercado Pago (avisos diários trial/inadimplência, sync API, Webhook MP) | ✅ **Implantado (Backend)** | [assinatura.ts](file:///Users/marco/Documents/Profiza%20Chatbot/bot/src/assinatura.ts), [server.ts](file:///Users/marco/Documents/Profiza%20Chatbot/bot/src/server.ts) |
+| **RF-13** | Página Web de Assinatura do Profissional (`profiza.net/assinar`) | ✅ **Implantado** | App React Web em [CheckoutAssinatura.tsx](file:///Users/marco/Documents/Profiza%20Chatbot/admin/src/components/CheckoutAssinatura.tsx) |
+| **RF-14** | Modelo de Dados de Verificação, Ocorrências e Níveis | ✅ **Implantado** | [OcorrenciasList.tsx](file:///Users/marco/Documents/Profiza%20Chatbot/admin/src/components/OcorrenciasList.tsx), [supabase.ts](file:///Users/marco/Documents/Profiza%20Chatbot/bot/src/supabase.ts) |
+| **RF-15** | Handoff e Central de Atendimento no Telegram | ✅ **Implantado** | [telegram.ts](file:///Users/marco/Documents/Profiza%20Chatbot/bot/src/telegram.ts) |
+| **RF-16** | Preparação para Múltiplas Cidades | ✅ **Implantado** | Tabela `cidades`, `interesse_cidades` |
+| **RF-17** | Ferramenta Web / Form Interno de Cadastro Presencial de Profissionais | ✅ **Implantado** | App React Web em [CadastroProfissional.tsx](file:///Users/marco/Documents/Profiza%20Chatbot/admin/src/components/CadastroProfissional.tsx) |
+| **Fase 6** | Golden Set de 100 conversas para testes de regressão de IA | ✅ **Implantado** | Runner em [test-golden-set.ts](file:///Users/marco/Documents/Profiza%20Chatbot/bot/src/test-golden-set.ts) (21/21 ok) |
+
+---
+
+### 15.2 Backlog de Desenvolvimento (Status Final)
+
+#### 1. Redirecionador HTTP de Contato (`profiza.net/c/{lead_id}`) — ✅ Concluído
+- **Implementado:** Endpoint `GET /c/:lead_id` em [server.ts](file:///Users/marco/Documents/Profiza%20Chatbot/bot/src/server.ts) que grava o clique em `cliques_contato` e redireciona para o `wa.me/55...`.
+
+#### 2. Agendador de Feedback do Cliente (48h Pós-Lead) — ✅ Concluído
+- **Implementado:** Função de busca e envio de pesquisas em 48h com parsing de respostas (👍 / 👎) e criação automática de ocorrências em [supabase.ts](file:///Users/marco/Documents/Profiza%20Chatbot/bot/src/supabase.ts) e [bot.ts](file:///Users/marco/Documents/Profiza%20Chatbot/bot/src/bot.ts).
+
+#### 3. Portal Web de Assinatura (`profiza.net/assinar`) — ✅ Concluído
+- **Implementado:** Aplicação Web em React/TypeScript na pasta [admin/src/components/CheckoutAssinatura.tsx](file:///Users/marco/Documents/Profiza%20Chatbot/admin/src/components/CheckoutAssinatura.tsx) integrada à cobrança recorrente do Mercado Pago.
+
+#### 4. Painel Administrativo & Form Interno de Cadastro Presencial (RF-17) — ✅ Concluído
+- **Implementado:** Portal Web completo na pasta `admin/` com Dashboard em tempo real, Ficha de Cadastro Presencial assistido com validação de documentos, Gestão de Profissionais/Assinaturas e Central de Ocorrências.
+
+#### 5. Suíte de Testes & Golden Set — ✅ Concluído
+- **Implementado:** Runner em [test-golden-set.ts](file:///Users/marco/Documents/Profiza%20Chatbot/bot/src/test-golden-set.ts) integrado com `npm test` no [package.json](file:///Users/marco/Documents/Profiza%20Chatbot/bot/package.json), alcançando 100% de aprovação.
+

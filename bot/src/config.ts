@@ -2,7 +2,13 @@ import "dotenv/config"
 
 function obrigatorio(key: string): string {
   const value = process.env[key]
-  if (!value) throw new Error(`Variável de ambiente obrigatória não definida: ${key}`)
+  if (!value) {
+    if (process.env.NODE_ENV === "test") {
+      if (key === "SUPABASE_URL") return "https://mock.supabase.co"
+      return `test_${key.toLowerCase()}`
+    }
+    throw new Error(`Variável de ambiente obrigatória não definida: ${key}`)
+  }
   return value
 }
 
@@ -28,4 +34,5 @@ export const config = {
   mercadoPago: {
     accessToken: process.env.MP_ACCESS_TOKEN ?? "",
   },
+  publicUrl: process.env.PUBLIC_URL ?? "https://profiza.net",
 }

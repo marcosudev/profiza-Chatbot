@@ -49,6 +49,9 @@ export const bairros: Bairro[] = [
   { nome: "Jardim Universitário", apelidos: ["universitário", "universitario", "unesp", "perto da unesp"], regiao: "Universitária" },
   { nome: "Vila Nova Cidade Universitária", apelidos: ["nova cidade universitária", "nova cidade"], regiao: "Universitária" },
   { nome: "Vila Universitária", apelidos: ["vila universitária"], regiao: "Universitária" },
+  { nome: "Jardim Higienópolis", apelidos: ["higienópolis", "higienopolis"], regiao: "Central" },
+  { nome: "Núcleo Presidente Geisel", apelidos: ["geisel", "núcleo geisel", "nucleo geisel"], regiao: "Leste" },
+  { nome: "Jardim América", apelidos: ["américa", "america"], regiao: "Central" },
 ]
 
 export const referencias: Record<string, string> = {

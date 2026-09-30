@@ -1,4 +1,4 @@
-# PRD — Modalidade Chatbot Profiza no Site Institucional
+# PRD — Chatbot Profiza no Site Institucional Existente
 
 | Campo | Valor |
 |---|---|
@@ -6,18 +6,18 @@
 | **Data** | 4 de setembro de 2026 |
 | **Status** | Rascunho para validação de negócio |
 | **Produto** | Chatbot Profiza |
-| **Superfície** | Site institucional da Profiza |
-| **Objetivo** | Apresentar, vender e captar interessados na modalidade Chatbot Profiza |
+| **Superfície** | Site institucional existente: [profiza.net](https://profiza.net) |
+| **Objetivo** | Evoluir a apresentação e a captação de interessados na modalidade Chatbot Profiza dentro do site existente |
 
 ## 1. Resumo executivo
 
-O site institucional deve apresentar o **Chatbot Profiza** como uma solução gerenciada de atendimento e distribuição de oportunidades pelo WhatsApp para negócios locais e profissionais de serviços.
+O site institucional existente, [profiza.net](https://profiza.net), deve apresentar o **Chatbot Profiza** como uma solução gerenciada de atendimento e distribuição de oportunidades pelo WhatsApp para negócios locais e profissionais de serviços. Este trabalho evolui a experiência que já existe no site; não requer criar um segundo site, novo domínio ou uma cópia da presença institucional.
 
 O produto existente recebe mensagens de clientes pelo WhatsApp, interpreta a necessidade com IA, identifica categoria e bairro, encontra um profissional elegível e envia o contato ao cliente. O sistema registra a oportunidade no Supabase e acompanha a entrega da mensagem pela Z-API. O painel administrativo permite acompanhar profissionais, oportunidades, status e assinaturas.
 
 O site não deve vender a ideia de um chatbot genérico que responde qualquer assunto. A proposta comprovada pelo sistema é mais específica e mais forte: **transformar pedidos espontâneos no WhatsApp em oportunidades encaminhadas para o profissional certo**.
 
-Este PRD especifica a experiência institucional e a captação comercial. O motor do bot, o painel administrativo e o banco de dados continuam sendo produtos técnicos separados.
+Este PRD especifica a evolução da experiência institucional existente e da captação comercial dentro de profiza.net. O motor do bot, o painel administrativo e o banco de dados continuam sendo produtos técnicos separados.
 
 ## 2. Contexto e problema
 
@@ -31,7 +31,7 @@ O profissional autônomo depende de indicação e tem dificuldade para receber o
 
 ### 2.3 Problema do operador da Profiza
 
-A operação precisa manter uma base de profissionais por categoria e bairro, distribuir oportunidades de forma rastreável e demonstrar o valor da assinatura. Sem uma apresentação clara no site, o visitante não entende a modalidade nem sabe qual próximo passo tomar.
+A operação precisa manter uma base de profissionais por categoria e bairro, distribuir oportunidades de forma rastreável e demonstrar o valor da assinatura. A experiência já publicada em profiza.net deve ser mantida como ponto de entrada e evoluída conforme as necessidades de conteúdo, conversão e operação.
 
 ## 3. Objetivos
 
@@ -147,13 +147,13 @@ Resultado esperado: quando não existe profissional no bairro pedido, o sistema 
 
 ### 7.1 Entrada principal
 
-Adicionar uma nova modalidade no site institucional com uma página ou seção dedicada ao Chatbot Profiza. A solução deve ser acessível pelo menu, por CTAs de outras páginas e por campanhas com URL rastreável.
+Evoluir a apresentação da modalidade dentro do site institucional existente em [profiza.net](https://profiza.net). Reutilizar a navegação, a identidade visual, os componentes e os padrões técnicos já adotados pelo site. Não criar um segundo site, outro domínio/subdomínio ou uma cópia independente da experiência institucional.
 
-Rota sugerida: `/chatbot-profiza`.
+A página inicial existente já apresenta o Chatbot Profiza e usa a âncora `#chatbot` para a seção do produto e `#interesse` para o formulário. Reutilizar esses pontos de entrada e os CTAs existentes; alterar ou acrescentar rotas/âncoras somente se houver uma necessidade de navegação validada, sempre dentro do mesmo site.
 
-Se o site usar uma página única, a seção deve ter uma âncora estável: `#chatbot-profiza`.
+### 7.2 Conteúdo da experiência existente
 
-### 7.2 Estrutura mínima da página
+Revisar e complementar a experiência já publicada, sem duplicar o site ou reconstruir seções que já atendam aos objetivos:
 
 1. Hero com nome do produto, benefício principal e CTA.
 2. Demonstração visual de uma conversa realista no WhatsApp.
@@ -209,7 +209,7 @@ Deixar claro que os nomes, telefones e mensagens exibidos são exemplos, caso n�
 
 ### RF-01 — Descoberta
 
-O visitante deve encontrar a modalidade no menu ou em uma área de soluções do site e chegar à página dedicada em um clique.
+O visitante deve encontrar a modalidade na navegação ou em uma área de soluções do site existente e chegar à seção do Chatbot Profiza em um clique, reutilizando os links e CTAs já publicados sempre que possível.
 
 ### RF-02 — Clareza da proposta
 
@@ -265,7 +265,7 @@ Registrar eventos de visualização da página, clique no CTA, início do formul
 
 ### RF-08 — Responsividade e acessibilidade
 
-A página deve funcionar em celular, tablet e desktop. CTAs devem ser fáceis de tocar, a conversa demonstrativa não pode exigir rolagem horizontal e o formulário deve ter labels, foco visível, mensagens de erro associadas e contraste adequado.
+A experiência no site deve funcionar em celular, tablet e desktop. CTAs devem ser fáceis de tocar, a conversa demonstrativa não pode exigir rolagem horizontal e o formulário deve ter labels, foco visível, mensagens de erro associadas e contraste adequado.
 
 ## 9. Requisitos não funcionais
 
@@ -308,12 +308,13 @@ Não usar preço por lead, saldo devedor, cobrança após confirmação de entre
 
 ## 11. Dependências técnicas e integrações
 
-### 11.1 Site institucional
+### 11.1 Site institucional existente
 
-- Nova rota ou seção do site.
-- Componentes reutilizáveis de CTA, FAQ, formulário e demonstração de conversa.
+- Evolução da página inicial/seção existente do Chatbot Profiza em profiza.net, preservando o site institucional atual.
+- Reutilização dos componentes existentes de navegação, CTA, FAQ, formulário e demonstração de conversa; novos componentes somente para lacunas identificadas.
 - Serviço de envio do formulário já usado pelo site ou endpoint dedicado.
 - Analytics compatível com a stack existente.
+- Não criar site, domínio, subdomínio ou implantação independente para esta modalidade.
 
 ### 11.2 Bot existente
 
@@ -364,7 +365,7 @@ Direto, local, confiável e pragmático. Falar sobre oportunidades e operação,
 
 ### Funil principal
 
-1. Visualizações da página Chatbot Profiza.
+1. Visualizações e interações com a seção Chatbot Profiza no site existente.
 2. Cliques no CTA.
 3. Inícios de formulário ou abertura do WhatsApp.
 4. Interessados comerciais enviados.
@@ -388,7 +389,8 @@ Não usar volume de mensagens do bot como métrica de sucesso da página institu
 
 ## 14. Critérios de aceite
 
-- [ ] A modalidade Chatbot Profiza aparece na navegação ou em uma área clara de soluções.
+- [ ] A modalidade Chatbot Profiza permanece acessível pela navegação e pelos pontos de entrada existentes em profiza.net.
+- [ ] A implementação evolui o site institucional existente, sem criar outro site, domínio ou cópia independente.
 - [ ] A primeira tela explica WhatsApp, IA, região e encaminhamento de oportunidades.
 - [ ] Existe CTA primário funcional para WhatsApp ou formulário.
 - [ ] A demonstração usa dados claramente identificados como exemplo quando necessário.
@@ -413,12 +415,12 @@ Não usar volume de mensagens do bot como métrica de sucesso da página institu
 - Definir canal de atendimento comercial.
 - Aprovar copy, provas e política de privacidade.
 
-### Fase 1 — Página de conversão
+### Fase 1 — Evolução da experiência de conversão existente
 
-- Criar rota/seção Chatbot Profiza.
-- Implementar hero, demonstração, fluxo, benefícios, FAQ e CTAs.
-- Implementar formulário e estados de interação.
-- Publicar eventos de analytics.
+- Revisar a experiência atual do Chatbot Profiza em profiza.net e identificar lacunas em relação aos requisitos aprovados.
+- Evoluir as seções, CTAs e formulário existentes; acrescentar conteúdo ou componentes somente onde necessário.
+- Preservar a navegação, a identidade visual e os padrões técnicos do site institucional.
+- Publicar ou ajustar eventos de analytics usando os padrões existentes.
 
 ### Fase 2 — Operação comercial
 
@@ -458,8 +460,8 @@ Não usar volume de mensagens do bot como métrica de sucesso da página institu
 8. Quais categorias e bairros devem aparecer na demonstração?
 9. Qual será o período de teste, se houver?
 10. Qual meio de pagamento será usado para a mensalidade?
-11. O site institucional já possui padrão de analytics, consentimento e formulário que deve ser reutilizado?
+11. Quais padrões já existentes de analytics, consentimento e formulário em profiza.net devem ser reutilizados ou ajustados?
 
 ## 18. Definição de pronto
 
-A feature estará pronta quando a página estiver publicada, o CTA gerar uma ação comercial real, os envios forem recebidos no destino definido, os eventos do funil forem mensuráveis, o texto refletir o comportamento atual do bot e as decisões de preço, público e cobertura estiverem aprovadas.
+A feature estará pronta quando a experiência evoluída estiver publicada no site institucional existente profiza.net, sem criar outro site; o CTA gerar uma ação comercial real; os envios forem recebidos no destino definido; os eventos do funil forem mensuráveis; o texto refletir o comportamento atual do bot; e as decisões de preço, público e cobertura estiverem aprovadas.

@@ -12,6 +12,9 @@ import {
   reservarRelatorioSemanal,
   registrarLog,
   buscarResumoDiario,
+  buscarLeadParaRedirecionamento,
+  registrarCliqueContato,
+  buscarLeadsParaFeedbackCliente,
 } from "./supabase"
 import { mensagens } from "./messages"
 import { processarUpdateTelegram, enviarResumoDiario, type TelegramUpdate } from "./telegram"
@@ -180,6 +183,29 @@ app.post<{ Body: EvolutionWebhookPayload; Querystring: { secret?: string } }>("/
   return reply.send({ ok: true })
 })
 
+// ─── Link rastreável de contato do cliente ────────────────────────────────────
+
+app.get<{ Params: { lead_id: string } }>("/c/:lead_id", async (request, reply) => {
+  const { lead_id } = request.params
+  const info = await buscarLeadParaRedirecionamento(lead_id)
+
+  if (!info || !info.profissionalWhatsapp) {
+    return reply.status(404).send("Link de indicação inválido ou expirado.")
+  }
+
+  await registrarCliqueContato(lead_id).catch(err => {
+    console.error("[redirect] Erro ao registrar clique:", err)
+  })
+
+  const numero = info.profissionalWhatsapp.replace(/\D/g, "")
+  const textoMensagem = encodeURIComponent(
+    `Olá, vim pela Profiza e preciso de ${info.categoria} no ${info.bairro}`
+  )
+  const targetUrl = `https://wa.me/55${numero}?text=${textoMensagem}`
+
+  return reply.redirect(302, targetUrl)
+})
+
 // ─── Webhook Telegram ───────────────────────────────────────────────────────
 
 app.post<{ Body: TelegramUpdate }>("/webhook/telegram", async (request, reply) => {
@@ -282,8 +308,26 @@ function horaAtualBauru(): number {
   return Number(partes.find(p => p.type === "hour")?.value ?? -1)
 }
 
+async function executarEnvioFeedbackClientes(): Promise<void> {
+  try {
+    const leadsFeedback = await buscarLeadsParaFeedbackCliente()
+    for (const lead of leadsFeedback) {
+      const msg = mensagens.pedirFeedbackCliente(lead.categoria, lead.nomeProfissional)
+      await enviarMensagem(lead.whatsappCliente, msg)
+      console.log(`[feedback-cliente] Pesquisa enviada -> ${lead.whatsappCliente} (Lead: ${lead.leadId})`)
+    }
+  } catch (err) {
+    console.error("[feedback-cliente] Erro ao enviar pesquisas de feedback:", err)
+  }
+}
+
 setInterval(async () => {
   const hora = horaAtualBauru()
+
+  // Pesquisa de feedback 48h ao cliente
+  if (hora >= 10 && hora <= 19) {
+    await executarEnvioFeedbackClientes().catch(err => console.error("[feedback-cliente] Erro:", err))
+  }
 
   // Avisos de trial e inadimplência: 9h
   if (hora === 9) {

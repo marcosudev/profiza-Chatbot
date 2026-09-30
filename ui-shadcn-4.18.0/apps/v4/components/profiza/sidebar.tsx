@@ -44,14 +44,15 @@ export function Sidebar() {
     <aside className="hidden w-72 bg-sidebar p-5 text-sidebar-foreground md:flex md:flex-col">
       {/* Logo */}
       <Link href="/profiza" className="mb-8 flex items-center gap-3 transition-opacity hover:opacity-80">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sidebar-primary font-display text-xl font-bold text-sidebar-primary-foreground">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#65A30D] font-display text-xl font-bold text-white shadow-sm">
           P
         </div>
         <div>
-          <p className="text-xs uppercase tracking-[0.18em] text-sidebar-primary">
-            Profiza
-          </p>
-          <h2 className="text-lg font-semibold text-sidebar-foreground">
+          <h1 className="font-display text-2xl font-extrabold tracking-tight leading-none">
+            <span className="text-white">Prof</span>
+            <span className="text-[#65A30D]">iza</span>
+          </h1>
+          <h2 className="text-[11px] font-semibold text-white/50 mt-0.5">
             Painel admin
           </h2>
         </div>

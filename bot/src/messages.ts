@@ -49,19 +49,25 @@ export const mensagens = {
     const header = `Ótima notícia! Encontrei opções de profissionais para você 🎉\n`
 
     const lista = profs.map(prof => {
-      const bairros = prof.bairros.join(", ")
-      return [
+      const bairros = prof.bairros.length > 0 ? prof.bairros.join(", ") : "Bauru e região"
+      const item = [
         `👷 *${prof.nome}*`,
         `🔧 ${categoria}`,
         `📍 Atende: ${bairros}`,
-        `📱 ${prof.whatsapp}`
-      ].join("\n")
+        `📱 ${prof.whatsapp}`,
+      ]
+      if (prof.linkContato) {
+        item.push(`👉 *Falar no WhatsApp:* ${prof.linkContato}`)
+      }
+      return item.join("\n")
     }).join("\n\n")
 
+    const nota = `_A Profiza indica profissionais cadastrados; o serviço é combinado diretamente com eles._`
+
     const fechamento = proximoServico
-      ? `Entre em contato diretamente pelo WhatsApp e mencione que veio pelo Profiza! Posso buscar também profissionais de *${proximoServico}*?`
-      : "Entre em contato diretamente pelo WhatsApp e mencione que veio pelo Profiza! Se precisar de mais contatos, é só pedir!"
-    return `${header}\n${lista}\n\n${fechamento}`
+      ? `Entre em contato diretamente e mencione que veio pelo Profiza! Posso buscar também profissionais de *${proximoServico}*?`
+      : "Entre em contato diretamente e mencione que veio pelo Profiza! Se precisar de mais contatos, é só pedir!"
+    return `${header}\n${lista}\n\n${nota}\n\n${fechamento}`
   },
 
   // Profissional encontrado mas em bairro diferente (fallback)
@@ -69,18 +75,46 @@ export const mensagens = {
     const header = `Encontrei profissionais de *${categoria}*, mas talvez não atendam ${bairroSolicitado} ainda.\n`
 
     const lista = profs.map(prof => {
-      const bairros = prof.bairros.join(", ")
-      return [
+      const bairros = prof.bairros.length > 0 ? prof.bairros.join(", ") : "Bauru e região"
+      const item = [
         `👷 *${prof.nome}*`,
         `📍 Atende: ${bairros}`,
-        `📱 ${prof.whatsapp}`
-      ].join("\n")
+        `📱 ${prof.whatsapp}`,
+      ]
+      if (prof.linkContato) {
+        item.push(`👉 *Falar no WhatsApp:* ${prof.linkContato}`)
+      }
+      return item.join("\n")
     }).join("\n\n")
+
+    const nota = `_A Profiza indica profissionais cadastrados; o serviço é combinado diretamente com eles._`
 
     const fechamento = proximoServico
       ? `Vale perguntar se eles conseguem atender sua região! 😊 Posso buscar também profissionais de *${proximoServico}*?`
       : "Vale perguntar se eles conseguem atender sua região! 😊 Se precisar de mais contatos, é só pedir!"
-    return `${header}\n${lista}\n\n${fechamento}`
+    return `${header}\n${lista}\n\n${nota}\n\n${fechamento}`
+  },
+
+  pedirFeedbackCliente(categoria: string, nomeProfissional: string): string {
+    return [
+      `Olá! Há 2 dias te indicamos o profissional *${nomeProfissional}* para *${categoria}*.`,
+      ``,
+      `Como foi seu atendimento? Responda com uma das opções:`,
+      `👍 - Deu tudo certo!`,
+      `👎 - Tive problemas / Não fui atendido`,
+    ].join("\n")
+  },
+
+  agradecerFeedbackClientePositivo(): string {
+    return "Que ótimo saber que deu tudo certo! Obrigado pelo seu feedback. Se precisar de outros profissionais, conte com a Profiza! 😊"
+  },
+
+  agradecerFeedbackClienteNegativo(): string {
+    return [
+      "Lamentamos pelo ocorrido! Registramos seu relato para nossa equipe verificar o cadastro do profissional.",
+      "",
+      "Se desejar, podemos te indicar outro profissional para este serviço. É só me avisar! 🙏",
+    ].join("\n")
   },
 
   // Nenhum profissional encontrado
