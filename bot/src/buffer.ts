@@ -15,6 +15,8 @@ interface EntradaBuffer {
   iniciado: number
   processando: boolean
   proximoLote: ItemBuffer[]
+  proximoLoteIniciado: number | null
+  proximoLoteAtualizado: number | null
 }
 
 type CallbackProcessar = (params: {
@@ -40,6 +42,9 @@ export function adicionarAoBuffer(
   const entrada = buffers.get(telefone)
 
   if (entrada?.processando) {
+    const agora = Date.now()
+    if (entrada.proximoLote.length === 0) entrada.proximoLoteIniciado = agora
+    entrada.proximoLoteAtualizado = agora
     entrada.proximoLote.push(item)
     return
   }
@@ -63,6 +68,8 @@ export function adicionarAoBuffer(
     iniciado: Date.now(),
     processando: false,
     proximoLote: [],
+    proximoLoteIniciado: null,
+    proximoLoteAtualizado: null,
   })
 }
 
@@ -100,12 +107,27 @@ async function processarBuffer(
     console.error("[buffer] Erro ao processar lote:", err)
   } finally {
     const proximoLote = entrada.proximoLote
-    buffers.delete(telefone)
-
     if (proximoLote.length > 0) {
-      for (const item of proximoLote) {
-        adicionarAoBuffer(telefone, item, nome, onProcessar)
-      }
+      const agora = Date.now()
+      const iniciado = entrada.proximoLoteIniciado ?? agora
+      const atualizado = entrada.proximoLoteAtualizado ?? agora
+      const esperaDebounce = Math.max(0, BUFFER_TIMEOUT_MS - (agora - atualizado))
+      const esperaMaxima = Math.max(0, BUFFER_MAX_TIMEOUT_MS - (agora - iniciado))
+
+      entrada.itens = proximoLote
+      entrada.proximoLote = []
+      entrada.proximoLoteIniciado = null
+      entrada.proximoLoteAtualizado = null
+      entrada.iniciado = iniciado
+      entrada.processando = false
+      entrada.timeout = setTimeout(() => {
+        processarBuffer(telefone, nome, onProcessar)
+      }, Math.min(esperaDebounce, esperaMaxima))
+      entrada.maxTimeout = setTimeout(() => {
+        processarBuffer(telefone, nome, onProcessar)
+      }, esperaMaxima)
+    } else {
+      buffers.delete(telefone)
     }
   }
 }
