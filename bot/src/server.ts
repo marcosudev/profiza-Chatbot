@@ -11,6 +11,7 @@ import {
   confirmarEntregaECobrar,
   reservarRelatorioSemanal,
   registrarLog,
+  buscarResumoDiario,
 } from "./supabase"
 import { mensagens } from "./messages"
 import { processarUpdateTelegram, enviarResumoDiario, type TelegramUpdate } from "./telegram"
@@ -57,6 +58,12 @@ app.get("/", async () => {
 // ─── Webhook Evolution API ────────────────────────────────────────────────────
 
 app.post<{ Body: EvolutionWebhookPayload }>("/webhook", async (request, reply) => {
+  // RNF-04 — valida WEBHOOK_SECRET
+  const secret = request.headers["x-webhook-secret"] ?? request.query?.secret
+  if (config.webhookSecret && secret !== config.webhookSecret) {
+    return reply.status(401).send({ error: "unauthorized" })
+  }
+
   const payload = request.body
 
   if (payload.event !== "messages.upsert") return reply.send({ ok: true })
@@ -262,13 +269,10 @@ setInterval(async () => {
 
   // Resumo diário no Telegram: 18h
   if (hora === 18) {
-    await enviarResumoDiario({
-      conversas: 0,
-      leads: 0,
-      handoffs: 0,
-      erros: 0,
-      assinaturasVencendo: [],
-    }).catch(err => console.error("[telegram] Erro resumo:", err))
+    const resumo = await buscarResumoDiario().catch(() => null)
+    if (resumo) {
+      await enviarResumoDiario(resumo).catch(err => console.error("[telegram] Erro resumo:", err))
+    }
   }
 }, 60 * 60 * 1000)
 

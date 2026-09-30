@@ -14,6 +14,7 @@ export interface Sessao {
   tentativasEsclarecimento: number
   ultimaIntencao: string | null
   humano_ativo?: boolean
+  primeiraInteracao?: boolean
 }
 
 function contatoHash(telefone: string): string {
@@ -62,5 +63,6 @@ function sessaoVazia(): Sessao {
     profissionaisIndicados: [],
     tentativasEsclarecimento: 0,
     ultimaIntencao: null,
+    primeiraInteracao: true,
   }
 }

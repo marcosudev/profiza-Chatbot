@@ -541,6 +541,55 @@ export async function registrarLog(
 
 // ─── Métricas (observabilidade RNF-05) ───────────────────────────────────────
 
+// ─── Métricas para resumo diário ────────────────────────────────────────────
+
+export interface ResumoDiario {
+  conversas: number
+  leads: number
+  handoffs: number
+  erros: number
+  assinaturasVencendo: string[]
+}
+
+export async function buscarResumoDiario(): Promise<ResumoDiario> {
+  const inicio = new Date()
+  inicio.setHours(0, 0, 0, 0)
+  const inicioISO = inicio.toISOString()
+
+  const [{ count: leads }, { count: conversas }, assinaturasVencendo] = await Promise.all([
+    supabase
+      .from("leads")
+      .select("*", { count: "exact", head: true })
+      .gte("created_at", inicioISO),
+    supabase
+      .from("sessoes")
+      .select("*", { count: "exact", head: true })
+      .gte("atualizado_em", inicioISO),
+    buscarProfissionaisParaAviso(7),
+  ])
+
+  return {
+    conversas: conversas ?? 0,
+    leads: leads ?? 0,
+    handoffs: 0,
+    erros: 0,
+    assinaturasVencendo: assinaturasVencendo.map(p => p.nome),
+  }
+}
+
+export async function apagarDadosContato(telefone: string): Promise<void> {
+  const hash = Buffer.from(telefone).toString("base64")
+  await Promise.all([
+    supabase.from("sessoes").delete().eq("contato_hash", hash),
+    supabase.from("interesse_cidades").delete().eq("contato_hash", hash),
+  ])
+  // Leads: anonimiza em vez de deletar (preserva métricas)
+  await supabase
+    .from("leads")
+    .update({ nome_cliente: "[removido]", whatsapp_cliente: "[removido]" })
+    .eq("whatsapp_cliente", telefone)
+}
+
 export async function registrarMetricaMensagem(dados: {
   contatoHash: string
   categoria: string | null
