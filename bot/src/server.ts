@@ -79,6 +79,7 @@ app.post<{ Body: ZApiWebhookPayload }>("/webhook", async (request, reply) => {
   }
 
   const payload = request.body
+  console.log("[webhook] payload:", JSON.stringify(payload))
 
   // Ignora mensagens enviadas pelo próprio bot, grupos e não-texto
   if (payload.fromMe) return reply.send({ ok: true })
