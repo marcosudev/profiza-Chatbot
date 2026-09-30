@@ -13,7 +13,7 @@ export interface Intencao {
   categoria: string | null
   bairro: string | null
   regiao: string | null
-  intencao: "busca_profissional" | "mais_opcoes" | "feedback" | "cadastro_profissional" | "emergencia" | "fora_escopo" | "saudacao"
+  intencao: "busca_profissional" | "mais_opcoes" | "feedback" | "cadastro_profissional" | "emergencia" | "fora_escopo" | "saudacao" | "reclamacao" | "falar_humano"
   confianca: number
   mensagem: string
 }

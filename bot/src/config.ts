@@ -21,4 +21,11 @@ export const config = {
     instance: obrigatorio("EVOLUTION_INSTANCE"),
     apiKey: obrigatorio("EVOLUTION_API_KEY"),
   },
+  telegram: {
+    botToken: process.env.TELEGRAM_BOT_TOKEN ?? "",
+    groupId: process.env.TELEGRAM_GROUP_ID ?? "",
+  },
+  mercadoPago: {
+    accessToken: process.env.MP_ACCESS_TOKEN ?? "",
+  },
 }

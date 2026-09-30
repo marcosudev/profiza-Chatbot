@@ -1,112 +1,57 @@
 import { createClient } from "@supabase/supabase-js"
 import { config } from "./config"
 
-// Service Role Key — bypassa RLS, nunca expor no frontend
-const supabase = createClient(
-  config.supabase.url,
-  config.supabase.serviceRoleKey
-)
+const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey)
 
 export interface Profissional {
   id: string
   nome: string
   whatsapp: string
   categoria: string
-  bairros: string[]           // mapeado de bairro_atuacao
-  status: string              // mapeado de status_pagamento
+  bairros: string[]
+  regiao: string | null
+  status: string
 }
 
-// Busca dinamicamente todas as categorias e bairros ativos no banco para a IA
-export async function buscarCategoriasEBairrosAtivos(): Promise<{ categorias: string[]; bairros: string[] }> {
-  const DEFAULT_CATS = [
-    "Eletricista", "Encanador", "Diarista", "Pedreiro", "Pintor", "Limpeza",
-    "Montador de Móveis", "Arquiteto", "Borracheiro", "Mecânico", "Jardineiro",
-    "Marceneiro", "Técnico de Ar-condicionado", "Técnico de Informática",
-    "Serralheiro", "Gesseiro", "Chaveiro", "Vidraceiro", "Desentupidor",
-    "Frete e Mudança", "Tapeceiro", "Calheiro", "Bombeiro Hidráulico"
-  ]
-  const DEFAULT_BAIRROS = ["Centro", "Jardim Europa", "Vila São José", "Alto da Colina", "Jardim das Flores", "Parque São Paulo", "Vila Nery", "Bela Vista"]
+// ─── Busca de profissionais ───────────────────────────────────────────────────
 
-  try {
-    const { data } = await supabase
-      .from("profissionais")
-      .select("categoria, bairros")
-      .in("status", ["ativo", "teste_gratis"])
+// Prioridade 1: mesmo bairro
+// Prioridade 2: mesma região
+// Prioridade 3: atende cidade toda (fallback)
+// Dentro de cada prioridade: rodízio por ultimo_lead_em ASC (nulls primeiro)
 
-    if (!data || data.length === 0) {
-      return { categorias: DEFAULT_CATS, bairros: DEFAULT_BAIRROS }
-    }
-
-    const catSet = new Set<string>(DEFAULT_CATS)
-    const bairroSet = new Set<string>(DEFAULT_BAIRROS)
-
-    data.forEach((row) => {
-      if (row.categoria) catSet.add(row.categoria)
-      if (Array.isArray(row.bairros)) row.bairros.forEach((b: string) => bairroSet.add(b))
-    })
-
-    return { categorias: Array.from(catSet), bairros: Array.from(bairroSet) }
-  } catch {
-    return { categorias: DEFAULT_CATS, bairros: DEFAULT_BAIRROS }
-  }
-}
-
-export async function buscarProfissionaisJaEnviados(
-  whatsappCliente: string,
-  categoria: string
-): Promise<string[]> {
-  const { data } = await supabase
-    .from("leads")
-    .select("profissional_id")
-    .eq("whatsapp_cliente", whatsappCliente)
-    .ilike("categoria", categoria)
-    .not("profissional_id", "is", null)
-
-  if (!data) return []
-  return data.map((d: any) => d.profissional_id)
-}
-
-// Busca profissionais ativos para categoria + bairro
-// Prioriza quem tem data_ultimo_lead mais antiga (distribuição justa)
 export async function buscarProfissionais(
   categoria: string,
   bairro: string,
   ignoreIds: string[] = [],
   limit: number = 4
 ): Promise<Profissional[]> {
-  let query = supabase
-    .from("profissionais")
-    .select("id, nome, whatsapp, categoria, bairros, status, metricas_bot!inner(data_ultimo_lead)")
-    .in("status", ["ativo", "teste_gratis"])
-    .ilike("categoria", categoria)
-    .contains("bairros", [bairro])
+  // Resolve bairro_id e regiao_id
+  const { data: bairroData } = await supabase
+    .from("bairros")
+    .select("id, regiao_id, regioes(nome)")
+    .ilike("nome", bairro)
+    .maybeSingle()
 
-  if (ignoreIds.length > 0) {
-    query = query.not("id", "in", `(${ignoreIds.join(",")})`)
+  const bairroId = bairroData?.id ?? null
+  const regiaoId = bairroData?.regiao_id ?? null
+
+  // Busca por bairro exato (prioridade 1)
+  if (bairroId) {
+    const profs = await _buscarPorBairroId(categoria, bairroId, ignoreIds, limit)
+    if (profs.length > 0) return profs
   }
 
-  const { data, error } = await query
+  // Busca por região (prioridade 2)
+  if (regiaoId) {
+    const profs = await _buscarPorRegiaoId(categoria, regiaoId, bairroId, ignoreIds, limit)
+    if (profs.length > 0) return profs
+  }
 
-  if (error || !data) return []
-
-  // Ordena no JS por garantia, os mais antigos primeiro (nulls = mais antigos ainda)
-  const sorted = data.sort((a: any, b: any) => {
-    const timeA = a.metricas_bot?.data_ultimo_lead ? new Date(a.metricas_bot.data_ultimo_lead).getTime() : 0
-    const timeB = b.metricas_bot?.data_ultimo_lead ? new Date(b.metricas_bot.data_ultimo_lead).getTime() : 0
-    return timeA - timeB
-  })
-
-  return sorted.slice(0, limit).map((d: any) => ({
-    id: d.id,
-    nome: d.nome,
-    whatsapp: d.whatsapp,
-    categoria: d.categoria,
-    bairros: d.bairros,
-    status: d.status
-  }))
+  return []
 }
 
-// Busca profissional com match parcial de bairro (fallback)
+// Fallback: profissionais que atendem a cidade toda
 export async function buscarProfissionaisFallback(
   categoria: string,
   ignoreIds: string[] = [],
@@ -114,33 +59,153 @@ export async function buscarProfissionaisFallback(
 ): Promise<Profissional[]> {
   let query = supabase
     .from("profissionais")
-    .select("id, nome, whatsapp, categoria, bairros, status, metricas_bot!inner(data_ultimo_lead)")
-    .in("status", ["ativo", "teste_gratis"])
+    .select("id, nome, whatsapp, categoria, ultimo_lead_em, atende_cidade_toda")
     .ilike("categoria", categoria)
+    .in("assinatura_status", ["trial", "ativa"])
+    .gte("nivel_verificacao", 1)
+    .eq("ativo", true)
+    .eq("atende_cidade_toda", true)
+    .order("ultimo_lead_em", { ascending: true, nullsFirst: true })
+    .limit(limit)
 
   if (ignoreIds.length > 0) {
     query = query.not("id", "in", `(${ignoreIds.join(",")})`)
   }
 
   const { data, error } = await query
-
   if (error || !data) return []
 
-  const sorted = data.sort((a: any, b: any) => {
-    const timeA = a.metricas_bot?.data_ultimo_lead ? new Date(a.metricas_bot.data_ultimo_lead).getTime() : 0
-    const timeB = b.metricas_bot?.data_ultimo_lead ? new Date(b.metricas_bot.data_ultimo_lead).getTime() : 0
-    return timeA - timeB
-  })
-
-  return sorted.slice(0, limit).map((d: any) => ({
+  return data.map((d: any) => ({
     id: d.id,
     nome: d.nome,
     whatsapp: d.whatsapp,
     categoria: d.categoria,
-    bairros: d.bairros,
-    status: d.status
+    bairros: ["Bauru e região"],
+    regiao: null,
+    status: d.assinatura_status,
   }))
 }
+
+async function _buscarPorBairroId(
+  categoria: string,
+  bairroId: number,
+  ignoreIds: string[],
+  limit: number
+): Promise<Profissional[]> {
+  let query = supabase
+    .from("profissional_bairros")
+    .select(`
+      profissional_id,
+      profissionais!inner(
+        id, nome, whatsapp, categoria, ativo, nivel_verificacao,
+        assinatura_status, ultimo_lead_em, atende_cidade_toda
+      )
+    `)
+    .eq("bairro_id", bairroId)
+    .eq("profissionais.ativo", true)
+    .gte("profissionais.nivel_verificacao", 1)
+    .in("profissionais.assinatura_status", ["trial", "ativa"])
+    .ilike("profissionais.categoria", categoria)
+
+  if (ignoreIds.length > 0) {
+    query = query.not("profissional_id", "in", `(${ignoreIds.join(",")})`)
+  }
+
+  const { data, error } = await query
+  if (error || !data) return []
+
+  return _ordenarEMapear(data, limit, bairroId)
+}
+
+async function _buscarPorRegiaoId(
+  categoria: string,
+  regiaoId: number,
+  excluirBairroId: number | null,
+  ignoreIds: string[],
+  limit: number
+): Promise<Profissional[]> {
+  // Pega todos os bairros da região
+  const { data: bairrosRegiao } = await supabase
+    .from("bairros")
+    .select("id")
+    .eq("regiao_id", regiaoId)
+
+  if (!bairrosRegiao || bairrosRegiao.length === 0) return []
+
+  const bairroIds = bairrosRegiao
+    .map((b: any) => b.id)
+    .filter((id: number) => id !== excluirBairroId)
+
+  if (bairroIds.length === 0) return []
+
+  let query = supabase
+    .from("profissional_bairros")
+    .select(`
+      profissional_id, bairro_id,
+      profissionais!inner(
+        id, nome, whatsapp, categoria, ativo, nivel_verificacao,
+        assinatura_status, ultimo_lead_em
+      )
+    `)
+    .in("bairro_id", bairroIds)
+    .eq("profissionais.ativo", true)
+    .gte("profissionais.nivel_verificacao", 1)
+    .in("profissionais.assinatura_status", ["trial", "ativa"])
+    .ilike("profissionais.categoria", categoria)
+
+  if (ignoreIds.length > 0) {
+    query = query.not("profissional_id", "in", `(${ignoreIds.join(",")})`)
+  }
+
+  const { data, error } = await query
+  if (error || !data) return []
+
+  return _ordenarEMapear(data, limit, null)
+}
+
+function _ordenarEMapear(data: any[], limit: number, bairroIdPrincipal: number | null): Profissional[] {
+  // Deduplica por profissional_id
+  const seen = new Set<string>()
+  const unique = data.filter((row: any) => {
+    const id = row.profissional_id ?? row.profissionais?.id
+    if (seen.has(id)) return false
+    seen.add(id)
+    return true
+  })
+
+  // Rodízio: ordena por ultimo_lead_em ASC (nulls primeiro)
+  unique.sort((a: any, b: any) => {
+    const tA = a.profissionais?.ultimo_lead_em ? new Date(a.profissionais.ultimo_lead_em).getTime() : 0
+    const tB = b.profissionais?.ultimo_lead_em ? new Date(b.profissionais.ultimo_lead_em).getTime() : 0
+    return tA - tB
+  })
+
+  return unique.slice(0, limit).map((row: any) => {
+    const p = row.profissionais
+    return {
+      id: p.id,
+      nome: p.nome,
+      whatsapp: p.whatsapp,
+      categoria: p.categoria,
+      bairros: [],   // preenchido abaixo se necessário
+      regiao: null,
+      status: p.assinatura_status,
+    }
+  })
+}
+
+// Carrega os bairros de um profissional para exibição na mensagem
+export async function carregarBairrosDoProfissional(profissionalId: string): Promise<string[]> {
+  const { data } = await supabase
+    .from("profissional_bairros")
+    .select("bairros(nome)")
+    .eq("profissional_id", profissionalId)
+
+  if (!data) return []
+  return data.map((row: any) => row.bairros?.nome).filter(Boolean)
+}
+
+// ─── Leads ────────────────────────────────────────────────────────────────────
 
 export interface SalvarLeadInput {
   nomeCliente: string
@@ -150,7 +215,86 @@ export interface SalvarLeadInput {
   profissionalId: string | null
   status: "enviado" | "sem_resposta" | "novo"
   mensagemOriginal: string
+  prioridadeMatch?: 1 | 2 | 3
 }
+
+export async function salvarLead(input: SalvarLeadInput): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("leads")
+    .insert({
+      nome_cliente: input.nomeCliente,
+      whatsapp_cliente: input.whatsappCliente,
+      categoria: input.categoria,
+      bairro: input.bairro,
+      profissional_id: input.profissionalId,
+      status: input.status,
+      prioridade_match: input.prioridadeMatch ?? null,
+    })
+    .select("id")
+    .single()
+
+  if (error) {
+    console.error("[supabase] Erro ao salvar lead:", error.message)
+    return null
+  }
+
+  if (input.profissionalId) {
+    await supabase.from("leads_eventos").insert({
+      profissional_id: input.profissionalId,
+      origem: "whatsapp",
+    })
+    // Atualiza ultimo_lead_em no profissional
+    await supabase
+      .from("profissionais")
+      .update({ ultimo_lead_em: new Date().toISOString() })
+      .eq("id", input.profissionalId)
+  }
+
+  return data.id
+}
+
+export async function atualizarLeadMensagemId(leadId: string, mensagemId: string): Promise<void> {
+  await supabase
+    .from("leads")
+    .update({ mensagem_id: mensagemId, status: "contato_enviado" })
+    .eq("id", leadId)
+}
+
+export async function buscarLeadPorMensagemId(mensagemId: string) {
+  const { data } = await supabase
+    .from("leads")
+    .select("id, profissional_id, status, cobrado, valor")
+    .eq("mensagem_id", mensagemId)
+    .single()
+  return data
+}
+
+export async function atualizarStatusEntrega(leadId: string, statusEntrega: string): Promise<void> {
+  await supabase
+    .from("leads")
+    .update({ status_entrega: statusEntrega })
+    .eq("id", leadId)
+}
+
+export async function confirmarEntregaECobrar(leadId: string): Promise<boolean> {
+  const { data: lead } = await supabase
+    .from("leads")
+    .select("id, status")
+    .eq("id", leadId)
+    .single()
+
+  if (!lead) return false
+  if (["entrega_confirmada", "falhou", "cancelado"].includes(lead.status)) return false
+
+  await supabase
+    .from("leads")
+    .update({ status: "entrega_confirmada", entrega_confirmada_at: new Date().toISOString() })
+    .eq("id", leadId)
+
+  return true
+}
+
+// ─── Feedback ─────────────────────────────────────────────────────────────────
 
 export type FeedbackStatus =
   | "cliente_respondeu"
@@ -168,7 +312,6 @@ const feedbackLabels: Record<FeedbackStatus, string> = {
 }
 
 export function interpretarFeedback(texto: string): FeedbackStatus | null {
-  const valor = texto.trim().toLowerCase()
   const porNumero: Record<string, FeedbackStatus> = {
     "1": "cliente_respondeu",
     "2": "orcamento_enviado",
@@ -176,7 +319,7 @@ export function interpretarFeedback(texto: string): FeedbackStatus | null {
     "4": "sem_resposta",
     "5": "contato_invalido",
   }
-  return porNumero[valor] ?? null
+  return porNumero[texto.trim()] ?? null
 }
 
 export function rotuloFeedback(status: FeedbackStatus): string {
@@ -189,9 +332,8 @@ export async function buscarProfissionalPorWhatsApp(whatsapp: string) {
     .from("profissionais")
     .select("id, nome")
     .in("whatsapp", [whatsapp, numero, `+${numero}`])
-    .in("status", ["ativo", "teste_gratis"])
+    .in("assinatura_status", ["trial", "ativa"])
     .maybeSingle()
-
   return data
 }
 
@@ -207,22 +349,19 @@ export async function buscarLeadPendenteFeedback(profissionalId: string) {
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle()
-
   return data
 }
 
-export async function registrarFeedbackLead(
-  leadId: string,
-  status: FeedbackStatus
-): Promise<boolean> {
+export async function registrarFeedbackLead(leadId: string, status: FeedbackStatus): Promise<boolean> {
   const { error } = await supabase
     .from("leads")
     .update({ feedback_status: status, feedback_at: new Date().toISOString() })
     .eq("id", leadId)
     .is("feedback_status", null)
-
   return !error
 }
+
+// ─── Relatórios semanais ──────────────────────────────────────────────────────
 
 interface RelatorioProfissional {
   id: string
@@ -235,15 +374,12 @@ interface RelatorioProfissional {
   bairros: string[]
 }
 
-export async function buscarRelatoriosSemanais(
-  inicio: string,
-  fim: string
-): Promise<RelatorioProfissional[]> {
+export async function buscarRelatoriosSemanais(inicio: string, fim: string): Promise<RelatorioProfissional[]> {
   const [{ data: profissionais }, { data: leads }] = await Promise.all([
     supabase
       .from("profissionais")
       .select("id, nome, whatsapp")
-      .in("status", ["ativo", "teste_gratis"]),
+      .in("assinatura_status", ["trial", "ativa"]),
     supabase
       .from("leads")
       .select("profissional_id, bairro, feedback_status")
@@ -254,134 +390,174 @@ export async function buscarRelatoriosSemanais(
 
   if (!profissionais || !leads) return []
 
-  return profissionais.flatMap((profissional) => {
-    const leadsDoProfissional = leads.filter((lead) => lead.profissional_id === profissional.id)
-    if (leadsDoProfissional.length === 0) return []
-
+  return profissionais.flatMap((p) => {
+    const leadsP = leads.filter((l) => l.profissional_id === p.id)
+    if (leadsP.length === 0) return []
     return [{
-      ...profissional,
-      total: leadsDoProfissional.length,
-      clientesResponderam: leadsDoProfissional.filter((lead) =>
-        ["cliente_respondeu", "orcamento_enviado", "servico_fechado"].includes(lead.feedback_status)
+      ...p,
+      total: leadsP.length,
+      clientesResponderam: leadsP.filter((l) =>
+        ["cliente_respondeu", "orcamento_enviado", "servico_fechado"].includes(l.feedback_status)
       ).length,
-      orcamentos: leadsDoProfissional.filter((lead) =>
-        ["orcamento_enviado", "servico_fechado"].includes(lead.feedback_status)
+      orcamentos: leadsP.filter((l) =>
+        ["orcamento_enviado", "servico_fechado"].includes(l.feedback_status)
       ).length,
-      servicosFechados: leadsDoProfissional.filter((lead) => lead.feedback_status === "servico_fechado").length,
-      bairros: Array.from(new Set(leadsDoProfissional.map((lead) => lead.bairro).filter(Boolean))),
+      servicosFechados: leadsP.filter((l) => l.feedback_status === "servico_fechado").length,
+      bairros: Array.from(new Set(leadsP.map((l) => l.bairro).filter(Boolean))),
     }]
   })
 }
 
-export async function reservarRelatorioSemanal(
-  profissionalId: string,
-  semanaInicio: string
-): Promise<boolean> {
+export async function reservarRelatorioSemanal(profissionalId: string, semanaInicio: string): Promise<boolean> {
   const { error } = await supabase
     .from("relatorios_semanais_profissionais")
     .insert({ profissional_id: profissionalId, semana_inicio: semanaInicio })
-
   return !error
 }
 
-// Salva o lead e dispara o trigger de metricas_bot via leads_eventos
-export async function salvarLead(input: SalvarLeadInput): Promise<string | null> {
-  const { data, error } = await supabase
-    .from("leads")
-    .insert({
-      nome_cliente: input.nomeCliente,
-      whatsapp_cliente: input.whatsappCliente,
-      categoria: input.categoria,
-      bairro: input.bairro,
-      profissional_id: input.profissionalId,
-      status: input.status,
-    })
-    .select("id")
-    .single()
+// ─── Handoff / sessão humano ──────────────────────────────────────────────────
 
-  if (error) {
-    console.error("[supabase] Erro ao salvar lead:", error.message)
-    return null
-  }
-
-  // Registra evento para atualizar metricas_bot via trigger
-  if (input.profissionalId) {
-    await supabase.from("leads_eventos").insert({
-      profissional_id: input.profissionalId,
-      origem: "whatsapp",
-    })
-  }
-
-  return data.id
-}
-
-// Atualiza lead com mensagem_id da Z-API para rastrear entrega
-export async function atualizarLeadMensagemId(
-  leadId: string,
-  mensagemId: string
-): Promise<void> {
-  await supabase
-    .from("leads")
-    .update({ mensagem_id: mensagemId, status: "contato_enviado" })
-    .eq("id", leadId)
-}
-
-// Busca lead pela mensagem_id
-export async function buscarLeadPorMensagemId(mensagemId: string) {
+export async function marcarSessaoHumanoAtivo(telefone: string, ativo: boolean): Promise<void> {
+  const hash = Buffer.from(telefone).toString("base64")
   const { data } = await supabase
-    .from("leads")
-    .select("id, profissional_id, status, cobrado, valor")
-    .eq("mensagem_id", mensagemId)
+    .from("sessoes")
+    .select("estado")
+    .eq("contato_hash", hash)
     .single()
+
+  if (!data) return
+
+  const estado = { ...(data.estado as any), humano_ativo: ativo }
+  await supabase
+    .from("sessoes")
+    .update({ estado, atualizado_em: new Date().toISOString() })
+    .eq("contato_hash", hash)
+}
+
+export async function sessaoHumanoAtivo(telefone: string): Promise<boolean> {
+  const hash = Buffer.from(telefone).toString("base64")
+  const { data } = await supabase
+    .from("sessoes")
+    .select("estado")
+    .eq("contato_hash", hash)
+    .single()
+
+  return (data?.estado as any)?.humano_ativo === true
+}
+
+// ─── Assinatura / trial ───────────────────────────────────────────────────────
+
+export interface ProfissionalTrialAviso {
+  id: string
+  nome: string
+  whatsapp: string
+  trial_ate: string
+  diasRestantes: number
+}
+
+export async function buscarProfissionaisParaAviso(diasRestantes: number): Promise<ProfissionalTrialAviso[]> {
+  const alvo = new Date()
+  alvo.setDate(alvo.getDate() + diasRestantes)
+  const dataAlvo = alvo.toISOString().split("T")[0]
+
+  const { data } = await supabase
+    .from("profissionais")
+    .select("id, nome, whatsapp, trial_ate")
+    .eq("assinatura_status", "trial")
+    .eq("trial_ate", dataAlvo)
+
+  if (!data) return []
+  return data.map((p: any) => ({ ...p, diasRestantes }))
+}
+
+export async function buscarProfissionaisVencidos(): Promise<{ id: string; nome: string; whatsapp: string }[]> {
+  const hoje = new Date().toISOString().split("T")[0]
+  const { data } = await supabase
+    .from("profissionais")
+    .select("id, nome, whatsapp")
+    .eq("assinatura_status", "ativa")
+    .lt("assinatura_ate", hoje)
+
+  return data ?? []
+}
+
+export async function atualizarStatusAssinatura(profissionalId: string, status: string): Promise<void> {
+  await supabase
+    .from("profissionais")
+    .update({ assinatura_status: status })
+    .eq("id", profissionalId)
+}
+
+export async function buscarProfissionalPorMpId(mpPreapprovalId: string) {
+  const { data } = await supabase
+    .from("profissionais")
+    .select("id, nome, whatsapp, assinatura_status")
+    .eq("mp_preapproval_id", mpPreapprovalId)
+    .maybeSingle()
   return data
 }
 
-// Atualiza status de entrega do lead
-export async function atualizarStatusEntrega(
-  leadId: string,
-  statusEntrega: string
-): Promise<void> {
+export async function atualizarMpPreapprovalId(profissionalId: string, mpId: string): Promise<void> {
   await supabase
-    .from("leads")
-    .update({ status_entrega: statusEntrega })
-    .eq("id", leadId)
+    .from("profissionais")
+    .update({ mp_preapproval_id: mpId })
+    .eq("id", profissionalId)
 }
 
-// Confirma entrega (sem cobrança por lead no novo modelo de mensalidade)
-export async function confirmarEntregaECobrar(leadId: string): Promise<boolean> {
-  const { data: lead } = await supabase
-    .from("leads")
-    .select("id, status")
-    .eq("id", leadId)
+// ─── Ocorrências ──────────────────────────────────────────────────────────────
+
+export async function registrarOcorrencia(
+  profissionalId: string | null,
+  leadId: string | null,
+  relato: string
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("ocorrencias")
+    .insert({ profissional_id: profissionalId, lead_id: leadId, relato })
+    .select("id")
     .single()
 
-  if (!lead) return false
-  if (lead.status === "entrega_confirmada" || lead.status === "falhou" || lead.status === "cancelado") return false
-
-  // Atualiza lead para entrega_confirmada
-  await supabase
-    .from("leads")
-    .update({
-      status: "entrega_confirmada",
-      entrega_confirmada_at: new Date().toISOString(),
-    })
-    .eq("id", leadId)
-
-  console.log(`[cobranca] Lead ${leadId} confirmado entregue (cobrança avulsa desativada)`)
-  return true
+  if (error) return null
+  return data.id
 }
 
-// Registra log de evento
+// ─── Interesse em cidades ─────────────────────────────────────────────────────
+
+export async function registrarInteresseCidade(telefone: string, cidadeTexto: string): Promise<void> {
+  const hash = Buffer.from(telefone).toString("base64")
+  await supabase.from("interesse_cidades").insert({ contato_hash: hash, cidade_texto: cidadeTexto })
+}
+
+// ─── Logs ─────────────────────────────────────────────────────────────────────
+
 export async function registrarLog(
   entidade: string,
   entidadeId: string,
   evento: string,
   payload: Record<string, unknown> = {}
 ): Promise<void> {
-  await supabase.from("logs_eventos").insert({
-    entidade,
-    entidade_id: entidadeId,
-    evento,
-    payload,
+  await supabase.from("logs_eventos").insert({ entidade, entidade_id: entidadeId, evento, payload })
+}
+
+// ─── Métricas (observabilidade RNF-05) ───────────────────────────────────────
+
+export async function registrarMetricaMensagem(dados: {
+  contatoHash: string
+  categoria: string | null
+  bairro: string | null
+  confianca: number
+  tempoTotalMs: number
+  resultado: "match_bairro" | "match_regiao" | "fallback_cidade" | "sem_match" | "erro"
+  custoTokensEstimado?: number
+}): Promise<void> {
+  await supabase.from("metricas_bot").upsert({
+    contato_hash: dados.contatoHash,
+    categoria: dados.categoria,
+    bairro: dados.bairro,
+    confianca: dados.confianca,
+    tempo_total_ms: dados.tempoTotalMs,
+    resultado: dados.resultado,
+    custo_tokens_estimado: dados.custoTokensEstimado ?? null,
+    criado_em: new Date().toISOString(),
   })
 }

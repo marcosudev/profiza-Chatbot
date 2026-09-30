@@ -3,6 +3,7 @@ import { carregarSessao, salvarSessao, type Sessao } from "./session"
 import {
   buscarProfissionais,
   buscarProfissionaisFallback,
+  carregarBairrosDoProfissional,
   buscarProfissionalPorWhatsApp,
   buscarLeadPendenteFeedback,
   interpretarFeedback,
@@ -10,9 +11,14 @@ import {
   rotuloFeedback,
   salvarLead,
   atualizarLeadMensagemId,
+  sessaoHumanoAtivo,
+  marcarSessaoHumanoAtivo,
+  registrarOcorrencia,
+  registrarMetricaMensagem,
 } from "./supabase"
 import { enviarMensagem, enviarPresenca } from "./evolution"
 import { mensagens } from "./messages"
+import { enviarAlertaHandoff, isBotPausado } from "./telegram"
 import type { ItemBuffer } from "./buffer"
 
 export interface LoteRecebido {
@@ -24,7 +30,12 @@ export interface LoteRecebido {
 export async function processarLote(lote: LoteRecebido): Promise<void> {
   const { telefone, nome, itens } = lote
 
-  // Agrupa textos em ordem cronológica
+  // Bot pausado globalmente (/pausar no Telegram)
+  if (isBotPausado()) return
+
+  // Sessão com humano ativo — bot não responde
+  if (await sessaoHumanoAtivo(telefone)) return
+
   const textos = itens
     .filter(i => i.tipo === "texto")
     .map(i => i.conteudo)
@@ -34,7 +45,7 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
 
   console.log(`[bot] Lote de ${telefone}: "${textos}"`)
 
-  // Indica que está digitando
+  const inicio = Date.now()
   await enviarPresenca(telefone, "composing")
 
   // Verifica se é profissional respondendo feedback
@@ -65,7 +76,8 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
 
   await enviarPresenca(telefone, "paused")
 
-  // Trata intenções especiais
+  // ── Intenções especiais ──────────────────────────────────────────────────────
+
   if (intencao.intencao === "emergencia") {
     await enviarMensagem(telefone, mensagens.emergencia())
     return
@@ -76,30 +88,48 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
     return
   }
 
-  if (intencao.intencao === "saudacao" && !intencao.categoria) {
-    await enviarMensagem(telefone, mensagens.naoEntendeu())
-    return
-  }
-
   if (intencao.intencao === "fora_escopo") {
     await enviarMensagem(telefone, mensagens.foraEscopo())
     return
   }
 
-  // Mescla com sessão anterior
+  // Reclamação → handoff
+  if (intencao.intencao === "reclamacao") {
+    const ocorrenciaId = await registrarOcorrencia(null, null, textos)
+    await _dispararHandoff(telefone, sessao, "Reclamação do cliente", textos)
+    await enviarMensagem(telefone, mensagens.reclamacaoRegistrada())
+    return
+  }
+
+  // Pedido de atendente humano → handoff
+  if (intencao.intencao === "falar_humano") {
+    await _dispararHandoff(telefone, sessao, "Cliente pediu atendente humano", textos)
+    await enviarMensagem(telefone, mensagens.aguardeAtendente())
+    return
+  }
+
+  if (intencao.intencao === "saudacao" && !intencao.categoria) {
+    await enviarMensagem(telefone, mensagens.naoEntendeu())
+    return
+  }
+
+  // ── Busca de profissionais ───────────────────────────────────────────────────
+
   const categoria = intencao.categoria ?? sessao.categoria
   const bairro = intencao.bairro ?? sessao.bairro
   const regiao = intencao.regiao ?? sessao.regiao
 
-  // Sem categoria — não entendeu
   if (!categoria) {
     sessao.tentativasEsclarecimento++
+    // 2 tentativas sem sucesso → handoff
+    if (sessao.tentativasEsclarecimento >= 2) {
+      await _dispararHandoff(telefone, sessao, "2 tentativas sem identificar serviço", textos)
+    }
     await salvarSessao(telefone, sessao)
     await enviarMensagem(telefone, mensagens.naoEntendeu())
     return
   }
 
-  // Tem categoria mas não bairro — pede o bairro
   if (!bairro) {
     sessao.categoria = categoria
     sessao.tentativasEsclarecimento++
@@ -117,7 +147,7 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
     return
   }
 
-  // Tem categoria + bairro — busca profissionais
+  // Tem categoria + bairro
   sessao.categoria = categoria
   sessao.bairro = bairro
   sessao.regiao = regiao
@@ -125,10 +155,15 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
 
   const ignoreIds = sessao.profissionaisIndicados
 
-  // Busca por bairro exato
+  // Prioridade 1 e 2: buscarProfissionais já tenta bairro → região
   const profissionais = await buscarProfissionais(categoria, bairro, ignoreIds, 4)
 
   if (profissionais.length > 0) {
+    // Carrega bairros de cada profissional para exibição
+    for (const prof of profissionais) {
+      prof.bairros = await carregarBairrosDoProfissional(prof.id)
+    }
+
     const envio = await enviarMensagem(telefone, mensagens.profissionalEncontrado(profissionais, categoria, bairro))
     for (const prof of profissionais) {
       sessao.profissionaisIndicados.push(prof.id)
@@ -140,19 +175,32 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
         profissionalId: prof.id,
         status: "enviado",
         mensagemOriginal: textos,
+        prioridadeMatch: 1,
       })
       if (leadId && envio.messageId) await atualizarLeadMensagemId(leadId, envio.messageId)
       await enviarMensagem(prof.whatsapp, mensagens.feedbackProfissional(categoria, bairro))
     }
     await salvarSessao(telefone, sessao)
+    await registrarMetricaMensagem({
+      contatoHash: Buffer.from(telefone).toString("base64"),
+      categoria,
+      bairro,
+      confianca: intencao.confianca,
+      tempoTotalMs: Date.now() - inicio,
+      resultado: "match_bairro",
+    })
     console.log(`[bot] Leads → ${profissionais.map(p => p.nome).join(", ")}`)
     return
   }
 
-  // Fallback por região
+  // Prioridade 3: fallback cidade toda
   const fallbacks = await buscarProfissionaisFallback(categoria, ignoreIds, 4)
 
   if (fallbacks.length > 0) {
+    for (const prof of fallbacks) {
+      prof.bairros = await carregarBairrosDoProfissional(prof.id)
+    }
+
     const envio = await enviarMensagem(telefone, mensagens.profissionalFallback(fallbacks, categoria, bairro))
     for (const prof of fallbacks) {
       sessao.profissionaisIndicados.push(prof.id)
@@ -164,11 +212,20 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
         profissionalId: prof.id,
         status: "enviado",
         mensagemOriginal: textos,
+        prioridadeMatch: 3,
       })
       if (leadId && envio.messageId) await atualizarLeadMensagemId(leadId, envio.messageId)
       await enviarMensagem(prof.whatsapp, mensagens.feedbackProfissional(categoria, bairro))
     }
     await salvarSessao(telefone, sessao)
+    await registrarMetricaMensagem({
+      contatoHash: Buffer.from(telefone).toString("base64"),
+      categoria,
+      bairro,
+      confianca: intencao.confianca,
+      tempoTotalMs: Date.now() - inicio,
+      resultado: "fallback_cidade",
+    })
     console.log(`[bot] Leads fallback → ${fallbacks.map(f => f.nome).join(", ")}`)
     return
   }
@@ -185,5 +242,32 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
     mensagemOriginal: textos,
   })
   await salvarSessao(telefone, sessao)
+  await registrarMetricaMensagem({
+    contatoHash: Buffer.from(telefone).toString("base64"),
+    categoria,
+    bairro,
+    confianca: intencao.confianca,
+    tempoTotalMs: Date.now() - inicio,
+    resultado: "sem_match",
+  })
   console.log(`[bot] Sem match para ${categoria} em ${bairro}`)
+}
+
+// ─── Handoff ──────────────────────────────────────────────────────────────────
+
+async function _dispararHandoff(
+  telefone: string,
+  sessao: Sessao,
+  motivo: string,
+  ultimasMensagens: string
+): Promise<void> {
+  await marcarSessaoHumanoAtivo(telefone, true)
+  await enviarAlertaHandoff({
+    telefone,
+    motivo,
+    categoria: sessao.categoria,
+    bairro: sessao.bairro,
+    resumo: `Categoria: ${sessao.categoria ?? "?"}, Bairro: ${sessao.bairro ?? "?"}`,
+    ultimasMensagens,
+  })
 }

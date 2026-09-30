@@ -13,6 +13,8 @@ import {
   registrarLog,
 } from "./supabase"
 import { mensagens } from "./messages"
+import { processarUpdateTelegram, enviarResumoDiario, type TelegramUpdate } from "./telegram"
+import { executarAvisosDiarios, conferirAssinaturasMercadoPago, processarWebhookMp, type MpWebhookPayload } from "./assinatura"
 
 const app = Fastify({ logger: true })
 
@@ -33,6 +35,7 @@ interface EvolutionWebhookPayload {
       conversation?: string
       extendedTextMessage?: { text?: string }
       audioMessage?: { url?: string; mimetype?: string; ptt?: boolean }
+      locationMessage?: { degreesLatitude?: number; degreesLongitude?: number }
     }
     messageType?: string
     status?: string
@@ -119,6 +122,17 @@ app.post<{ Body: EvolutionWebhookPayload }>("/webhook", async (request, reply) =
     return reply.send({ ok: true })
   }
 
+  // Localização compartilhada (RF-11)
+  if (messageType === "locationMessage") {
+    const lat = payload.data.message?.locationMessage?.degreesLatitude
+    const lng = payload.data.message?.locationMessage?.degreesLongitude
+    if (lat && lng) {
+      const textoLoc = `__localizacao:${lat},${lng}__`
+      adicionarAoBuffer(telefone, { tipo: "texto", conteudo: textoLoc, messageId }, nome, processarLote)
+    }
+    return reply.send({ ok: true })
+  }
+
   // Imagem, sticker, etc.
   if (messageType === "imageMessage" || messageType === "stickerMessage") {
     adicionarAoBuffer(
@@ -132,6 +146,20 @@ app.post<{ Body: EvolutionWebhookPayload }>("/webhook", async (request, reply) =
     return reply.send({ ok: true })
   }
 
+  return reply.send({ ok: true })
+})
+
+// ─── Webhook Telegram ───────────────────────────────────────────────────────
+
+app.post<{ Body: TelegramUpdate }>("/webhook/telegram", async (request, reply) => {
+  setImmediate(() => processarUpdateTelegram(request.body).catch(console.error))
+  return reply.send({ ok: true })
+})
+
+// ─── Webhook Mercado Pago ─────────────────────────────────────────────────────
+
+app.post<{ Body: MpWebhookPayload }>("/webhook/mercadopago", async (request, reply) => {
+  setImmediate(() => processarWebhookMp(request.body).catch(console.error))
   return reply.send({ ok: true })
 })
 
@@ -210,6 +238,38 @@ setInterval(() => {
   enviarRelatoriosSemanais().catch((err) => {
     console.error("[relatorio] Erro:", err)
   })
+}, 60 * 60 * 1000)
+
+// ─── Rotinas diárias (avisos trial + conferência MP) ─────────────────────────
+
+function horaAtualBauru(): number {
+  const partes = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date())
+  return Number(partes.find(p => p.type === "hour")?.value ?? -1)
+}
+
+setInterval(async () => {
+  const hora = horaAtualBauru()
+
+  // Avisos de trial e inadimplência: 9h
+  if (hora === 9) {
+    await executarAvisosDiarios().catch(err => console.error("[assinatura] Erro avisos:", err))
+    await conferirAssinaturasMercadoPago().catch(err => console.error("[assinatura] Erro conferência MP:", err))
+  }
+
+  // Resumo diário no Telegram: 18h
+  if (hora === 18) {
+    await enviarResumoDiario({
+      conversas: 0,
+      leads: 0,
+      handoffs: 0,
+      erros: 0,
+      assinaturasVencendo: [],
+    }).catch(err => console.error("[telegram] Erro resumo:", err))
+  }
 }, 60 * 60 * 1000)
 
 // ─── Start ────────────────────────────────────────────────────────────────────

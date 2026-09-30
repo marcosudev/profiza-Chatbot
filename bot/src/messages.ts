@@ -145,4 +145,21 @@ export const mensagens = {
   foraEscopo(): string {
     return "Sou especializado em indicar profissionais em Bauru. Me conta qual serviço você precisa e em qual bairro! 🔧👷"
   },
+
+  reclamacaoRegistrada(): string {
+    return [
+      "Registrei sua reclamação e nossa equipe vai analisar. 🙏",
+      "",
+      "Um atendente entrará em contato em breve.",
+    ].join("\n")
+  },
+
+  aguardeAtendente(): string {
+    return [
+      "Entendido! Vou chamar um atendente para te ajudar. 👋",
+      "",
+      "Nossa equipe atende de segunda a sexta, 8h–18h, e sábado, 8h–12h.",
+      "Fora desse horário, retornamos no próximo dia útil.",
+    ].join("\n")
+  },
 }
