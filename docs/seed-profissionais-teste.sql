@@ -11,10 +11,18 @@
 BEGIN;
 
 DO $$
+DECLARE
+  bairros_ausentes TEXT;
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM public.bairros WHERE nome = 'Santa Luzia')
-     OR NOT EXISTS (SELECT 1 FROM public.bairros WHERE nome = 'Centro') THEN
-    RAISE EXCEPTION 'Execute docs/seed-bairros-bauru.sql antes deste seed';
+  SELECT string_agg(esperado.nome, ', ')
+  INTO bairros_ausentes
+  FROM (VALUES ('Santa Luzia'), ('Centro')) AS esperado(nome)
+  WHERE NOT EXISTS (
+    SELECT 1 FROM public.bairros bairro WHERE bairro.nome = esperado.nome
+  );
+
+  IF bairros_ausentes IS NOT NULL THEN
+    RAISE EXCEPTION 'Bairro(s) ausente(s): %. Execute docs/seed-bairros-bauru.sql no mesmo projeto Supabase antes deste seed.', bairros_ausentes;
   END IF;
 END;
 $$;
