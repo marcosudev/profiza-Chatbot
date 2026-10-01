@@ -38,10 +38,31 @@ export async function enviarMensagem(
       }
     )
 
-    const data = (await res.json()) as EvolutionResponse
+    const data = (await res.json()) as any
 
     if (!res.ok || data.error) {
-      console.error("[evolution] Erro ao enviar mensagem:", data.error ?? data.message ?? res.status)
+      console.error("[evolution] Erro ao enviar mensagem:", JSON.stringify(data))
+
+      // Fallback para Evolution API se number exigir sufixo ou formato alternativo
+      if (res.status === 400) {
+        const resRetry = await fetch(
+          `${config.evolution.baseUrl}/message/sendText/${config.evolution.instance}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              apikey: config.evolution.apiKey,
+            },
+            body: JSON.stringify({ number: `${numero}@s.whatsapp.net`, text: texto }),
+          }
+        )
+        const dataRetry = (await resRetry.json()) as any
+        if (resRetry.ok && !dataRetry.error) {
+          const msgIdRetry = dataRetry.key?.id
+          return { sucesso: true, messageId: msgIdRetry }
+        }
+      }
+
       return { sucesso: false }
     }
 

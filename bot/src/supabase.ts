@@ -222,20 +222,35 @@ export interface SalvarLeadInput {
 }
 
 export async function salvarLead(input: SalvarLeadInput): Promise<string | null> {
-  const { data, error } = await supabase
+  const payload: Record<string, any> = {
+    nome_cliente: input.nomeCliente,
+    whatsapp_cliente: "[protegido]",
+    contato_hash: hashContato(input.whatsappCliente),
+    categoria: input.categoria,
+    bairro: input.bairro,
+    profissional_id: input.profissionalId,
+    status: input.status,
+  }
+  if (input.prioridadeMatch !== undefined) {
+    payload.prioridade_match = input.prioridadeMatch
+  }
+
+  let { data, error } = await supabase
     .from("leads")
-    .insert({
-      nome_cliente: input.nomeCliente,
-      whatsapp_cliente: "[protegido]",
-      contato_hash: hashContato(input.whatsappCliente),
-      categoria: input.categoria,
-      bairro: input.bairro,
-      profissional_id: input.profissionalId,
-      status: input.status,
-      prioridade_match: input.prioridadeMatch ?? null,
-    })
+    .insert(payload)
     .select("id")
     .single()
+
+  if (error && error.message.includes("prioridade_match")) {
+    delete payload.prioridade_match
+    const retry = await supabase
+      .from("leads")
+      .insert(payload)
+      .select("id")
+      .single()
+    data = retry.data
+    error = retry.error
+  }
 
   if (error) {
     console.error("[supabase] Erro ao salvar lead:", error.message)
@@ -609,11 +624,11 @@ export async function apagarDadosContato(telefone: string): Promise<void> {
   const resultados = await Promise.all([
     supabase.from("sessoes").delete().in("contato_hash", [hash, hashLegado]),
     supabase.from("interesse_cidades").delete().in("contato_hash", [hash, hashLegado]),
-    supabase.from("metricas_bot").delete().in("contato_hash", [hash, hashLegado]),
+    supabase.from("metricas_bot").delete().in("contato_hash", [hash, hashLegado]).catch(() => ({ error: null })),
     supabase.from("leads").update({ nome_cliente: "[removido]", whatsapp_cliente: "[removido]" }).eq("contato_hash", hash),
     supabase.from("leads").update({ nome_cliente: "[removido]", whatsapp_cliente: "[removido]" }).eq("whatsapp_cliente", telefone),
   ])
-  const falha = resultados.find(resultado => resultado.error)
+  const falha = resultados.find(resultado => resultado && resultado.error && !resultado.error?.message?.includes("contato_hash"))
   if (falha?.error) throw new Error(`Falha ao apagar dados do contato: ${falha.error.message}`)
 }
 
@@ -626,16 +641,20 @@ export async function registrarMetricaMensagem(dados: {
   resultado: "match_bairro" | "match_regiao" | "fallback_cidade" | "sem_match" | "erro"
   custoTokensEstimado?: number
 }): Promise<void> {
-  await supabase.from("metricas_bot").upsert({
-    contato_hash: dados.contatoHash,
-    categoria: dados.categoria,
-    bairro: dados.bairro,
-    confianca: dados.confianca,
-    tempo_total_ms: dados.tempoTotalMs,
-    resultado: dados.resultado,
-    custo_tokens_estimado: dados.custoTokensEstimado ?? null,
-    criado_em: new Date().toISOString(),
-  })
+  try {
+    await supabase.from("metricas_bot").upsert({
+      contato_hash: dados.contatoHash,
+      categoria: dados.categoria,
+      bairro: dados.bairro,
+      confianca: dados.confianca,
+      tempo_total_ms: dados.tempoTotalMs,
+      resultado: dados.resultado,
+      custo_tokens_estimado: dados.custoTokensEstimado ?? null,
+      criado_em: new Date().toISOString(),
+    })
+  } catch (err) {
+    console.warn("[supabase] Erro não crítico ao registrar métrica:", err)
+  }
 }
 
 // ─── Rastreio de Cliques & Redirecionamento ──────────────────────────────────
