@@ -158,6 +158,15 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
     return
   }
 
+  if (sessao.urgenciaPerguntada && intencao.urgente !== null) {
+    intencao.categoria ??= sessao.categoria
+    intencao.bairro ??= sessao.bairro
+    intencao.regiao ??= sessao.regiao
+    if (intencao.intencao === "saudacao" || intencao.intencao === "fora_escopo") {
+      intencao.intencao = "busca_profissional"
+    }
+  }
+
   if (intencao.intencao === "cadastro_profissional") {
     await enviarMensagem(telefone, mensagens.cadastroProfissional())
     return
@@ -189,6 +198,12 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
     await enviarMensagem(telefone, mensagens.aguardeAtendente())
     return
   }
+
+  if (intencao.categoria && intencao.categoria !== sessao.categoria) {
+    sessao.urgente = null
+    sessao.urgenciaPerguntada = false
+  }
+  if (intencao.urgente !== null) sessao.urgente = intencao.urgente
 
   const servicosNaFila = sessao.servicosNaFila ?? []
   if (sessao.aguardandoConfirmacaoServico && servicosNaFila.length > 0) {
@@ -277,6 +292,7 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
 
   if (!bairro) {
     sessao.categoria = categoria
+    sessao.urgenciaPerguntada = true
     sessao.tentativasEsclarecimento++
     await salvarSessao(telefone, sessao)
     await salvarLead({
@@ -290,6 +306,19 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
     })
     const msgPedirBairro = intencao.mensagem?.trim() || mensagens.pedirBairro(categoria)
     await enviarMensagem(telefone, msgPedirBairro)
+    return
+  }
+
+  if (sessao.urgente == null && !sessao.urgenciaPerguntada) {
+    sessao.categoria = categoria
+    sessao.bairro = bairro
+    sessao.regiao = regiao
+    sessao.urgenciaPerguntada = true
+    await salvarSessao(telefone, sessao)
+    await enviarMensagem(
+      telefone,
+      intencao.mensagem?.trim() || mensagens.pedirUrgencia(categoria, bairro)
+    )
     return
   }
 
@@ -325,7 +354,7 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
     }
 
     const proximoServico = prepararProximoServico(sessao)
-    const envio = await enviarMensagem(telefone, mensagens.profissionalEncontrado(profissionais, categoria, bairro, proximoServico))
+    const envio = await enviarMensagem(telefone, mensagens.profissionalEncontrado(profissionais, categoria, bairro, proximoServico, sessao.urgente))
 
     for (const prof of profissionais) {
       if (prof.leadId && envio.messageId) await atualizarLeadMensagemId(prof.leadId, envio.messageId)
@@ -369,7 +398,7 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
     }
 
     const proximoServico = prepararProximoServico(sessao)
-    const envio = await enviarMensagem(telefone, mensagens.profissionalFallback(fallbacks, categoria, bairro, proximoServico))
+    const envio = await enviarMensagem(telefone, mensagens.profissionalFallback(fallbacks, categoria, bairro, proximoServico, sessao.urgente))
 
     for (const prof of fallbacks) {
       if (prof.leadId && envio.messageId) await atualizarLeadMensagemId(prof.leadId, envio.messageId)

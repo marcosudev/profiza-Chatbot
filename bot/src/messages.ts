@@ -45,7 +45,7 @@ export const mensagens = {
   },
 
   // Profissional encontrado com match exato (categoria + bairro)
-  profissionalEncontrado(profs: Profissional[], categoria: string, bairro: string, proximoServico?: string | null): string {
+  profissionalEncontrado(profs: Profissional[], categoria: string, bairro: string, proximoServico?: string | null, urgente?: boolean | null): string {
     const header = `Ótima notícia! Encontrei opções de profissionais para você 🎉\n`
 
     const lista = profs.map(prof => {
@@ -63,15 +63,20 @@ export const mensagens = {
     }).join("\n\n")
 
     const nota = `_A Profiza indica profissionais cadastrados; o serviço é combinado diretamente com eles._`
+    const observacaoUrgencia = urgente === true
+      ? "\n\nEntendi que é urgente. Confirme diretamente com o profissional o prazo de atendimento."
+      : urgente === false
+        ? "\n\nAnotei que pode aguardar. Combine o prazo diretamente com o profissional."
+        : ""
 
     const fechamento = proximoServico
       ? `Entre em contato diretamente e mencione que veio pelo Profiza! Posso buscar também profissionais de *${proximoServico}*?`
       : "Entre em contato diretamente e mencione que veio pelo Profiza! Se precisar de mais contatos, é só pedir!"
-    return `${header}\n${lista}\n\n${nota}\n\n${fechamento}`
+    return `${header}\n${lista}\n\n${nota}${observacaoUrgencia}\n\n${fechamento}`
   },
 
   // Profissional encontrado mas em bairro diferente (fallback)
-  profissionalFallback(profs: Profissional[], categoria: string, bairroSolicitado: string, proximoServico?: string | null): string {
+  profissionalFallback(profs: Profissional[], categoria: string, bairroSolicitado: string, proximoServico?: string | null, urgente?: boolean | null): string {
     const header = `Encontrei profissionais de *${categoria}*, mas talvez não atendam ${bairroSolicitado} ainda.\n`
 
     const lista = profs.map(prof => {
@@ -88,11 +93,16 @@ export const mensagens = {
     }).join("\n\n")
 
     const nota = `_A Profiza indica profissionais cadastrados; o serviço é combinado diretamente com eles._`
+    const observacaoUrgencia = urgente === true
+      ? "\n\nEntendi que é urgente. Confirme diretamente com o profissional se ele consegue atender no prazo que você precisa."
+      : urgente === false
+        ? "\n\nAnotei que pode aguardar. Combine o prazo diretamente com o profissional."
+        : ""
 
     const fechamento = proximoServico
       ? `Vale perguntar se eles conseguem atender sua região! 😊 Posso buscar também profissionais de *${proximoServico}*?`
       : "Vale perguntar se eles conseguem atender sua região! 😊 Se precisar de mais contatos, é só pedir!"
-    return `${header}\n${lista}\n\n${nota}\n\n${fechamento}`
+    return `${header}\n${lista}\n\n${nota}${observacaoUrgencia}\n\n${fechamento}`
   },
 
   pedirFeedbackCliente(categoria: string, nomeProfissional: string): string {
@@ -163,10 +173,14 @@ export const mensagens = {
       return templateCustomizado.replace(/\{categoria\}/g, categoria)
     }
     return [
-      `Entendi, você precisa de um *${categoria}*! 👍`,
+      `Claro, vou te ajudar a encontrar um profissional de *${categoria}*.`,
       ``,
-      `Em qual bairro de Bauru você precisa do serviço?`,
+      `Em qual bairro de Bauru fica o serviço? Se puder, me diga também se é urgente ou se pode aguardar.`,
     ].join("\n")
+  },
+
+  pedirUrgencia(categoria: string, bairro: string): string {
+    return `Certo, vou procurar um profissional de *${categoria}* no *${bairro}*. O atendimento é urgente ou pode aguardar?`
   },
 
   // Erro interno

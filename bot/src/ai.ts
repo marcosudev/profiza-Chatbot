@@ -13,6 +13,7 @@ export interface Intencao {
   categoria: string | null
   bairro: string | null
   regiao: string | null
+  urgente: boolean | null
   intencao: "busca_profissional" | "mais_opcoes" | "feedback" | "cadastro_profissional" | "emergencia" | "fora_escopo" | "saudacao" | "reclamacao" | "falar_humano"
   confianca: number
   mensagem: string
@@ -35,6 +36,21 @@ function montarContextoCategorias(): string {
   return categorias.map(c => `${c.slug} (${c.label})`).join(", ")
 }
 
+export function resolverUrgenciaLocal(mensagem: string): boolean | null {
+  const texto = mensagem
+    .toLocaleLowerCase("pt-BR")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+
+  if (/\b(nao\s+(?:e\s+)?urgente|sem\s+pressa|pode\s+aguardar|pode\s+esperar|nao\s+tem\s+pressa)\b/.test(texto)) {
+    return false
+  }
+  if (/\b(urgente|urgencia|pra\s+hoje|para\s+hoje|o\s+quanto\s+antes|imediato)\b/.test(texto)) {
+    return true
+  }
+  return null
+}
+
 export async function extrairIntencao(
   mensagem: string,
   sessao: Sessao
@@ -43,9 +59,10 @@ export async function extrairIntencao(
   const catLocal = resolverCategoria(mensagem)
   const categoriasSolicitadas = resolverCategoriasSolicitadas(mensagem)
   const bairroLocal = resolverBairro(mensagem)
+  const urgenteLocal = resolverUrgenciaLocal(mensagem)
 
   const contextoSessao = sessao.categoria || sessao.bairro
-    ? `\nCONTEXTO DA SESSÃO ATUAL: categoria=${sessao.categoria ?? "não definida"}, bairro=${sessao.bairro ?? "não definido"}`
+    ? `\nCONTEXTO DA SESSÃO ATUAL: categoria=${sessao.categoria ?? "não definida"}, bairro=${sessao.bairro ?? "não definido"}, urgência=${sessao.urgente == null ? "não informada" : sessao.urgente ? "urgente" : "pode aguardar"}`
     : ""
 
   const system = promptSistema(montarContextoBairros(), montarContextoCategorias()) + contextoSessao
@@ -57,13 +74,13 @@ export async function extrairIntencao(
         { role: "system", content: system },
         { role: "user", content: mensagem },
       ],
-      temperature: 0,
-      max_tokens: 200,
+      temperature: 0.3,
+      max_tokens: 300,
       response_format: { type: "json_object" },
     })
 
     const content = response.choices[0]?.message?.content
-    if (!content) return fallback(catLocal, bairroLocal, categoriasSolicitadas)
+    if (!content) return fallback(catLocal, bairroLocal, categoriasSolicitadas, urgenteLocal)
 
     const parsed = JSON.parse(content) as Partial<Intencao>
 
@@ -96,6 +113,7 @@ export async function extrairIntencao(
       categoria,
       bairro: nomeBairro,
       regiao: regiaoBairro,
+      urgente: urgenteLocal ?? (typeof parsed.urgente === "boolean" ? parsed.urgente : null),
       intencao: parsed.intencao ?? "busca_profissional",
       confianca: parsed.confianca ?? 0.5,
       mensagem: parsed.mensagem ?? "",
@@ -104,19 +122,21 @@ export async function extrairIntencao(
     }
   } catch (err) {
     console.error("[ai] Erro ao extrair intenção:", err)
-    return fallback(catLocal, bairroLocal, categoriasSolicitadas)
+    return fallback(catLocal, bairroLocal, categoriasSolicitadas, urgenteLocal)
   }
 }
 
 function fallback(
   catLocal: ReturnType<typeof resolverCategoria>,
   bairroLocal: ReturnType<typeof resolverBairro>,
-  categoriasSolicitadas: string[]
+  categoriasSolicitadas: string[],
+  urgente: boolean | null
 ): Intencao {
   return {
     categoria: catLocal?.ambiguo || categoriasSolicitadas.length > 1 ? null : catLocal?.slug ?? null,
     bairro: bairroLocal?.bairro ?? null,
     regiao: bairroLocal?.regiao ?? null,
+    urgente,
     intencao: "busca_profissional",
     confianca: 0.3,
     mensagem: "",

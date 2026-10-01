@@ -11,6 +11,7 @@ import { resolverBairro } from "./knowledge/bairros-bauru"
 import { extrairCoordenadas, coordenadasParaBairro } from "./geo"
 import { solicitouExclusaoDados } from "./privacidade"
 import { interpretarFeedback } from "./supabase"
+import { resolverUrgenciaLocal } from "./ai"
 
 interface TestCase {
   id: number
@@ -46,6 +47,11 @@ const casosDeTeste: TestCase[] = [
   { id: 15, descricao: "Bairro oficial: Higienópolis", input: "fica no higienópolis", validacao: () => resolverBairro("fica no higienópolis")?.bairro === "Jardim Higienópolis" },
   { id: 16, descricao: "Bairro oficial: Geisel", input: "preciso no geisel", validacao: () => resolverBairro("preciso no geisel")?.bairro === "Núcleo Presidente Geisel" },
   { id: 17, descricao: "Bairro oficial: Santa Luzia", input: "Quero um encanador e sou do Santa Luzia", validacao: () => resolverBairro("Quero um encanador e sou do Santa Luzia")?.bairro === "Santa Luzia" },
+
+  // ── 3.1 Urgência & conversa ──────────────────────────────────────────────────
+  { id: 22, descricao: "Urgência explícita", input: "preciso para hoje, é urgente", validacao: () => resolverUrgenciaLocal("preciso para hoje, é urgente") === true },
+  { id: 23, descricao: "Sem urgência explícita", input: "não é urgente, pode aguardar", validacao: () => resolverUrgenciaLocal("não é urgente, pode aguardar") === false },
+  { id: 24, descricao: "Urgência não informada", input: "preciso de um pintor", validacao: () => resolverUrgenciaLocal("preciso de um pintor") === null },
 
   // ── 4. Geolocalização ────────────────────────────────────────────────────────
   { id: 17, descricao: "Extrair coordenadas de texto de mapa", input: "__localizacao:-22.3145,-49.0587__", validacao: () => {

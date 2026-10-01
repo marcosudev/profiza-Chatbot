@@ -10,6 +10,8 @@ export interface Sessao {
   categoria: string | null
   bairro: string | null
   regiao: string | null
+  urgente?: boolean | null
+  urgenciaPerguntada?: boolean
   nome: string | null
   profissionaisIndicados: string[]
   tentativasEsclarecimento: number
@@ -71,6 +73,8 @@ function sessaoVazia(): Sessao {
     categoria: null,
     bairro: null,
     regiao: null,
+    urgente: null,
+    urgenciaPerguntada: false,
     nome: null,
     profissionaisIndicados: [],
     tentativasEsclarecimento: 0,
