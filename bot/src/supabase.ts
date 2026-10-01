@@ -730,13 +730,23 @@ export async function cadastrarProfissionaisMockups(): Promise<string[]> {
   const cadastrados: string[] = []
 
   for (const p of MOCK_PROFISSIONAIS) {
-    const { data: prof, error } = await supabase
+    const { data: existente } = await supabase
       .from("profissionais")
-      .upsert(p, { onConflict: "whatsapp" })
       .select("id, nome")
-      .single()
+      .eq("whatsapp", p.whatsapp)
+      .maybeSingle()
 
-    if (error || !prof) continue
+    let prof = existente
+    if (existente) {
+      const { error } = await supabase.from("profissionais").update(p).eq("id", existente.id)
+      if (error) console.error(`[seed] Erro ao atualizar ${p.nome}:`, error.message)
+    } else {
+      const { data: novo, error } = await supabase.from("profissionais").insert(p).select("id, nome").single()
+      if (error) console.error(`[seed] Erro ao inserir ${p.nome}:`, error.message)
+      prof = novo
+    }
+
+    if (!prof) continue
 
     cadastrados.push(prof.nome)
 
@@ -745,7 +755,7 @@ export async function cadastrarProfissionaisMockups(): Promise<string[]> {
         profissional_id: prof.id,
         bairro_id: b.id,
       }))
-      await supabase.from("profissional_bairros").upsert(vinculos, { onConflict: "profissional_id,bairro_id" })
+      await Promise.resolve(supabase.from("profissional_bairros").upsert(vinculos, { onConflict: "profissional_id,bairro_id" })).catch(() => null)
     }
   }
 
