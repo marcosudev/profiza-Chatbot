@@ -269,7 +269,7 @@ export async function salvarLead(input: SalvarLeadInput): Promise<string | null>
       .eq("id", input.profissionalId)
   }
 
-  return data.id
+  return data?.id ?? null
 }
 
 export async function atualizarLeadMensagemId(leadId: string, mensagemId: string): Promise<void> {
@@ -624,11 +624,11 @@ export async function apagarDadosContato(telefone: string): Promise<void> {
   const resultados = await Promise.all([
     supabase.from("sessoes").delete().in("contato_hash", [hash, hashLegado]),
     supabase.from("interesse_cidades").delete().in("contato_hash", [hash, hashLegado]),
-    supabase.from("metricas_bot").delete().in("contato_hash", [hash, hashLegado]).catch(() => ({ error: null })),
+    Promise.resolve(supabase.from("metricas_bot").delete().in("contato_hash", [hash, hashLegado])).catch(() => ({ error: null })),
     supabase.from("leads").update({ nome_cliente: "[removido]", whatsapp_cliente: "[removido]" }).eq("contato_hash", hash),
     supabase.from("leads").update({ nome_cliente: "[removido]", whatsapp_cliente: "[removido]" }).eq("whatsapp_cliente", telefone),
   ])
-  const falha = resultados.find(resultado => resultado && resultado.error && !resultado.error?.message?.includes("contato_hash"))
+  const falha = resultados.find((resultado: any) => resultado && resultado.error && !resultado.error?.message?.includes("contato_hash"))
   if (falha?.error) throw new Error(`Falha ao apagar dados do contato: ${falha.error.message}`)
 }
 
