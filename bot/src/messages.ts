@@ -45,11 +45,20 @@ export const mensagens = {
   },
 
   // Profissional encontrado com match exato (categoria + bairro)
-  profissionalEncontrado(profs: Profissional[], categoria: string, bairro: string, proximoServico?: string | null, urgente?: boolean | null): string {
-    const header = `Ótima notícia! Encontrei opções de profissionais para você 🎉\n`
+  profissionalEncontrado(
+    profs: Profissional[],
+    categoria: string,
+    bairro: string,
+    proximoServico?: string | null,
+    urgente?: boolean | null,
+    prioridadeMatch: 1 | 2 | null = 1
+  ): string {
+    const header = prioridadeMatch === 2
+      ? `Não encontrei profissionais de *${categoria}* no bairro *${bairro}*, mas achei opções em outros bairros da mesma região.\n`
+      : `Ótima notícia! Encontrei opções de profissionais para você 🎉\n`
 
     const lista = profs.map(prof => {
-      const bairros = prof.bairros.length > 0 ? prof.bairros.join(", ") : "Bauru e região"
+      const bairros = prof.bairros.length > 0 ? prof.bairros.join(", ") : "confirme a cobertura com o profissional"
       const item = [
         `👷 *${prof.nome}*`,
         `🔧 ${categoria}`,
@@ -70,8 +79,10 @@ export const mensagens = {
         : ""
 
     const fechamento = proximoServico
-      ? `Entre em contato diretamente e mencione que veio pelo Profiza! Posso buscar também profissionais de *${proximoServico}*?`
-      : "Entre em contato diretamente e mencione que veio pelo Profiza! Se precisar de mais contatos, é só pedir!"
+      ? `Entre em contato diretamente e mencione que veio pelo Profiza! Posso buscar também profissionais de *${proximoServico}*? Se houver um prazo importante, me conte também.`
+      : urgente === null
+        ? "O atendimento é urgente ou pode aguardar? Se precisar de mais opções, é só pedir!"
+        : "Entre em contato diretamente e mencione que veio pelo Profiza! Se precisar de mais contatos, é só pedir!"
     return `${header}\n${lista}\n\n${nota}${observacaoUrgencia}\n\n${fechamento}`
   },
 
@@ -80,7 +91,7 @@ export const mensagens = {
     const header = `Encontrei profissionais de *${categoria}*, mas talvez não atendam ${bairroSolicitado} ainda.\n`
 
     const lista = profs.map(prof => {
-      const bairros = prof.bairros.length > 0 ? prof.bairros.join(", ") : "Bauru e região"
+      const bairros = prof.bairros.length > 0 ? prof.bairros.join(", ") : "confirme a cobertura com o profissional"
       const item = [
         `👷 *${prof.nome}*`,
         `📍 Atende: ${bairros}`,
@@ -100,8 +111,10 @@ export const mensagens = {
         : ""
 
     const fechamento = proximoServico
-      ? `Vale perguntar se eles conseguem atender sua região! 😊 Posso buscar também profissionais de *${proximoServico}*?`
-      : "Vale perguntar se eles conseguem atender sua região! 😊 Se precisar de mais contatos, é só pedir!"
+      ? `Vale confirmar se eles atendem sua região. Posso buscar também profissionais de *${proximoServico}*? Se houver um prazo importante, me conte também.`
+      : urgente === null
+        ? "Vale confirmar se eles atendem sua região. O atendimento é urgente ou pode aguardar? Se precisar de mais opções, é só pedir!"
+        : "Vale confirmar se eles atendem sua região. 😊 Se precisar de mais contatos, é só pedir!"
     return `${header}\n${lista}\n\n${nota}${observacaoUrgencia}\n\n${fechamento}`
   },
 
@@ -175,12 +188,28 @@ export const mensagens = {
     return [
       `Claro, vou te ajudar a encontrar um profissional de *${categoria}*.`,
       ``,
-      `Em qual bairro de Bauru fica o serviço? Se puder, me diga também se é urgente ou se pode aguardar.`,
+      `Em qual bairro de Bauru fica o serviço? Se tiver um prazo importante, pode me contar também.`,
     ].join("\n")
   },
 
-  pedirUrgencia(categoria: string, bairro: string): string {
-    return `Certo, vou procurar um profissional de *${categoria}* no *${bairro}*. O atendimento é urgente ou pode aguardar?`
+  atualizarUrgenciaSemMatch(categoria: string, bairro: string, urgente: boolean): string {
+    const prazo = urgente ? "Entendi que você precisa com urgência." : "Entendi que pode aguardar."
+    return `${prazo} A busca por um profissional de *${categoria}* em *${bairro}* já foi feita, mas ainda não encontrei alguém cadastrado nessa região. Não vou repetir a mesma busca; posso tentar outra região se você preferir.`
+  },
+
+  atualizarUrgenciaComMatch(urgente: boolean): string {
+    return urgente
+      ? "Entendi que você precisa com urgência. Os contatos já foram enviados; confirme diretamente com os profissionais se conseguem atender no prazo que precisa."
+      : "Entendi, você pode aguardar. Os contatos já foram enviados; combine o prazo diretamente com os profissionais."
+  },
+
+  continuarPedido(categoria: string, bairro: string | null): string {
+    const local = bairro ? ` em *${bairro}*` : ""
+    return `Ainda estou com seu pedido de *${categoria}*${local}. Você quer tentar outra região ou procurar outro serviço?`
+  },
+
+  buscaIndisponivel(): string {
+    return "Não consegui consultar os profissionais agora por uma falha temporária. Seu pedido não foi marcado como sem profissionais; tente novamente em alguns instantes."
   },
 
   // Erro interno

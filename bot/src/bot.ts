@@ -1,7 +1,13 @@
 import { config } from "./config"
-import { extrairIntencao } from "./ai"
-import { categorias, resolverCategoriaPendente } from "./knowledge/categorias"
-import { carregarSessao, salvarSessao, type Sessao } from "./session"
+import { extrairIntencao, resolverUrgenciaLocal } from "./ai"
+import { categorias, resolverCategoria, resolverCategoriaPendente } from "./knowledge/categorias"
+import { resolverBairro } from "./knowledge/bairros-bauru"
+import {
+  deveAtualizarSomenteUrgencia,
+  deveEvitarBuscaRepetida,
+  deveIniciarNovoPedido,
+} from "./conversation-state"
+import { adicionarTurnoConversa, carregarSessao, salvarSessao, type Sessao } from "./session"
 import {
   buscarProfissionais,
   buscarProfissionaisFallback,
@@ -125,6 +131,7 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
 
   // Extrai intenção via IA com RAG
   const intencao = await extrairIntencao(textos, sessao)
+  adicionarTurnoConversa(sessao, "user", textos)
 
   if (sessao.categoriasPendentes?.length) {
     const selecionada = resolverCategoriaPendente(textos, sessao.categoriasPendentes)
@@ -154,21 +161,12 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
   // ── Intenções especiais ──────────────────────────────────────────────────────
 
   if (intencao.intencao === "emergencia") {
-    await enviarMensagem(telefone, mensagens.emergencia())
+    await enviarResposta(telefone, mensagens.emergencia(), sessao)
     return
   }
 
-  if (sessao.urgenciaPerguntada && intencao.urgente !== null) {
-    intencao.categoria ??= sessao.categoria
-    intencao.bairro ??= sessao.bairro
-    intencao.regiao ??= sessao.regiao
-    if (intencao.intencao === "saudacao" || intencao.intencao === "fora_escopo") {
-      intencao.intencao = "busca_profissional"
-    }
-  }
-
   if (intencao.intencao === "cadastro_profissional") {
-    await enviarMensagem(telefone, mensagens.cadastroProfissional())
+    await enviarResposta(telefone, mensagens.cadastroProfissional(), sessao)
     return
   }
 
@@ -177,10 +175,10 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
     const querAviso = /sim|quero|avisa|avise|pode/i.test(textos)
     if (sessao.ultimaIntencao === "fora_bauru" && querAviso) {
       await registrarInteresseCidade(telefone, textos)
-      await enviarMensagem(telefone, "Anotado! Te avisamos quando chegarmos na sua cidade. 😊")
+      await enviarResposta(telefone, "Anotado! Te avisamos quando chegarmos na sua cidade. 😊", sessao)
       return
     }
-    await enviarMensagem(telefone, mensagens.foraEscopo())
+    await enviarResposta(telefone, mensagens.foraEscopo(), sessao)
     return
   }
 
@@ -188,21 +186,62 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
   if (intencao.intencao === "reclamacao") {
     const ocorrenciaId = await registrarOcorrencia(null, null, textos)
     await _dispararHandoff(telefone, sessao, "Reclamação do cliente", textos)
-    await enviarMensagem(telefone, mensagens.reclamacaoRegistrada())
+    await enviarResposta(telefone, mensagens.reclamacaoRegistrada(), sessao)
     return
   }
 
   // Pedido de atendente humano → handoff
   if (intencao.intencao === "falar_humano") {
     await _dispararHandoff(telefone, sessao, "Cliente pediu atendente humano", textos)
-    await enviarMensagem(telefone, mensagens.aguardeAtendente())
+    await enviarResposta(telefone, mensagens.aguardeAtendente(), sessao)
     return
   }
 
-  if (intencao.categoria && intencao.categoria !== sessao.categoria) {
-    sessao.urgente = null
-    sessao.urgenciaPerguntada = false
+  const categoriaMencionada = resolverCategoria(textos)
+  const bairroMencionado = resolverBairro(textos)
+  const urgenciaMencionada = resolverUrgenciaLocal(textos)
+
+  if (urgenciaMencionada !== null && deveAtualizarSomenteUrgencia({
+    buscaConcluida: Boolean(sessao.buscaConcluida),
+    urgenciaMencionada,
+    categoriaMencionada: Boolean(categoriaMencionada),
+    bairroMencionado: Boolean(bairroMencionado),
+    intencao: intencao.intencao,
+  })) {
+    sessao.urgente = urgenciaMencionada
+    const resposta = sessao.resultadoUltimaBusca === "sem_match"
+      ? mensagens.atualizarUrgenciaSemMatch(sessao.categoria ?? "serviço", sessao.bairro ?? "sua região", urgenciaMencionada)
+      : mensagens.atualizarUrgenciaComMatch(urgenciaMencionada)
+    await enviarResposta(telefone, resposta, sessao)
+    return
   }
+
+  if (categoriaMencionada && deveIniciarNovoPedido({
+    buscaConcluida: Boolean(sessao.buscaConcluida),
+    aguardandoConfirmacaoServico: Boolean(sessao.aguardandoConfirmacaoServico),
+    categoriaMencionada: Boolean(categoriaMencionada),
+    intencao: intencao.intencao,
+  })) {
+    const manterMesmoLocal = /\b(mesmo bairro|mesmo local|mesmo endereco|mesma casa|mesmo lugar)\b/i.test(textos)
+    sessao.categoria = categoriaMencionada.slug
+    sessao.urgente = urgenciaMencionada
+    sessao.profissionaisIndicados = []
+    sessao.buscaConcluida = false
+    sessao.resultadoUltimaBusca = null
+    sessao.perguntaPendente = null
+    intencao.categoria = categoriaMencionada.slug
+    intencao.urgente = urgenciaMencionada
+    intencao.bairro = bairroMencionado?.bairro ?? (manterMesmoLocal ? sessao.bairro : null)
+    intencao.regiao = bairroMencionado?.regiao ?? (manterMesmoLocal ? sessao.regiao : null)
+    if (!intencao.bairro) {
+      sessao.bairro = null
+      sessao.regiao = null
+    }
+  } else if (intencao.categoria && intencao.categoria !== sessao.categoria) {
+    sessao.urgente = urgenciaMencionada
+    sessao.profissionaisIndicados = []
+  }
+
   if (intencao.urgente !== null) sessao.urgente = intencao.urgente
 
   const servicosNaFila = sessao.servicosNaFila ?? []
@@ -226,7 +265,7 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
       sessao.aguardandoConfirmacaoServico = false
       sessao.categoria = null
       await salvarSessao(telefone, sessao)
-      await enviarMensagem(telefone, "Tudo bem. Deixei os outros serviços de lado por enquanto.")
+      await enviarResposta(telefone, "Tudo bem. Deixei os outros serviços de lado por enquanto.", sessao)
       return
     } else if (intencao.categoria && !servicosNaFila.includes(intencao.categoria)) {
       sessao.servicosNaFila = []
@@ -236,7 +275,7 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
       const opcoes = servicosNaFila.map(slug =>
         categorias.find(categoria => categoria.slug === slug)?.label ?? slug
       )
-      await enviarMensagem(telefone, mensagens.confirmarOrdem(opcoes))
+      await enviarResposta(telefone, mensagens.confirmarOrdem(opcoes), sessao)
       return
     }
   }
@@ -252,24 +291,25 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
     const opcoes = sessao.servicosNaFila.map(slug =>
       categorias.find(categoria => categoria.slug === slug)?.label ?? slug
     )
-    await enviarMensagem(telefone, mensagens.confirmarOrdem(opcoes))
+    await enviarResposta(telefone, mensagens.confirmarOrdem(opcoes), sessao)
     return
   }
 
   if (intencao.intencao === "saudacao" && !intencao.categoria) {
     const respostaHumanizada = intencao.mensagem?.trim() || mensagens.naoEntendeu()
-    await enviarMensagem(telefone, respostaHumanizada)
+    await enviarResposta(telefone, respostaHumanizada, sessao)
     return
   }
 
   if (intencao.categoriasAlternativas.length > 1) {
     sessao.categoria = null
     sessao.categoriasPendentes = intencao.categoriasAlternativas
+    sessao.perguntaPendente = "categoria"
     await salvarSessao(telefone, sessao)
     const opcoes = intencao.categoriasAlternativas.map(slug =>
       categorias.find(categoria => categoria.slug === slug)?.label ?? slug
     )
-    await enviarMensagem(telefone, mensagens.categoriaAmbigua(opcoes))
+    await enviarResposta(telefone, mensagens.categoriaAmbigua(opcoes), sessao)
     return
   }
 
@@ -280,19 +320,20 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
   const regiao = intencao.regiao ?? sessao.regiao
 
   if (!categoria) {
+    sessao.perguntaPendente = "categoria"
     sessao.tentativasEsclarecimento++
     if (sessao.tentativasEsclarecimento >= 3) {
       await _dispararHandoff(telefone, sessao, "3 tentativas sem identificar serviço", textos)
     }
     await salvarSessao(telefone, sessao)
     const msgHumanizada = intencao.mensagem?.trim() || mensagens.naoEntendeu()
-    await enviarMensagem(telefone, msgHumanizada)
+    await enviarResposta(telefone, msgHumanizada, sessao)
     return
   }
 
   if (!bairro) {
     sessao.categoria = categoria
-    sessao.urgenciaPerguntada = true
+    sessao.perguntaPendente = "bairro"
     sessao.tentativasEsclarecimento++
     await salvarSessao(telefone, sessao)
     await salvarLead({
@@ -304,20 +345,26 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
       status: "novo",
       mensagemOriginal: textos,
     })
-    const msgPedirBairro = intencao.mensagem?.trim() || mensagens.pedirBairro(categoria)
-    await enviarMensagem(telefone, msgPedirBairro)
+    const respostaModelo = intencao.mensagem?.trim() ?? ""
+    const msgPedirBairro = /\b(bairro|regi[aã]o)\b/i.test(respostaModelo)
+      ? respostaModelo
+      : mensagens.pedirBairro(categorias.find(item => item.slug === categoria)?.label ?? categoria)
+    await enviarResposta(telefone, msgPedirBairro, sessao)
     return
   }
 
-  if (sessao.urgente == null && !sessao.urgenciaPerguntada) {
-    sessao.categoria = categoria
-    sessao.bairro = bairro
-    sessao.regiao = regiao
-    sessao.urgenciaPerguntada = true
-    await salvarSessao(telefone, sessao)
-    await enviarMensagem(
+  if (deveEvitarBuscaRepetida({
+    buscaConcluida: Boolean(sessao.buscaConcluida),
+    aguardandoConfirmacaoServico: Boolean(sessao.aguardandoConfirmacaoServico),
+    categoriaMencionada: Boolean(categoriaMencionada),
+    bairroMencionado: Boolean(bairroMencionado),
+    urgenciaMencionada,
+    intencao: intencao.intencao,
+  })) {
+    await enviarResposta(
       telefone,
-      intencao.mensagem?.trim() || mensagens.pedirUrgencia(categoria, bairro)
+      mensagens.continuarPedido(categoria, bairro),
+      sessao
     )
     return
   }
@@ -326,16 +373,34 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
   sessao.categoria = categoria
   sessao.bairro = bairro
   sessao.regiao = regiao
+  sessao.perguntaPendente = null
+  sessao.buscaConcluida = false
+  sessao.resultadoUltimaBusca = null
   sessao.tentativasEsclarecimento = 0
 
   const ignoreIds = sessao.profissionaisIndicados
 
   // Prioridade 1 e 2: buscarProfissionais já tenta bairro → região
-  const profissionais = await buscarProfissionais(categoria, bairro, ignoreIds, 4)
+  const resultadoProfissionais = await buscarProfissionais(categoria, bairro, ignoreIds, 4)
+  if (resultadoProfissionais.status === "indisponivel") {
+    sessao.resultadoUltimaBusca = "indisponivel"
+    await enviarResposta(telefone, mensagens.buscaIndisponivel(), sessao)
+    await registrarMetricaMensagem({
+      contatoHash: hashContato(telefone),
+      categoria,
+      bairro,
+      confianca: intencao.confianca,
+      tempoTotalMs: Date.now() - inicio,
+      resultado: "erro",
+    })
+    return
+  }
+  const profissionais = resultadoProfissionais.profissionais
 
   if (profissionais.length > 0) {
     for (const prof of profissionais) {
-      prof.bairros = await carregarBairrosDoProfissional(prof.id)
+      const bairrosAtendidos = await carregarBairrosDoProfissional(prof.id)
+      if (bairrosAtendidos.length > 0) prof.bairros = bairrosAtendidos
       sessao.profissionaisIndicados.push(prof.id)
       const leadId = await salvarLead({
         nomeCliente: nome,
@@ -345,7 +410,7 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
         profissionalId: prof.id,
         status: "enviado",
         mensagemOriginal: textos,
-        prioridadeMatch: 1,
+        prioridadeMatch: resultadoProfissionais.prioridadeMatch ?? 1,
       })
       if (leadId) {
         prof.leadId = leadId
@@ -354,7 +419,20 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
     }
 
     const proximoServico = prepararProximoServico(sessao)
-    const envio = await enviarMensagem(telefone, mensagens.profissionalEncontrado(profissionais, categoria, bairro, proximoServico, sessao.urgente))
+    sessao.resultadoUltimaBusca = "match"
+    sessao.buscaConcluida = !sessao.aguardandoConfirmacaoServico
+    const envio = await enviarResposta(
+      telefone,
+      mensagens.profissionalEncontrado(
+        profissionais,
+        categoria,
+        bairro,
+        proximoServico,
+        sessao.urgente,
+        resultadoProfissionais.prioridadeMatch === 2 ? 2 : 1
+      ),
+      sessao
+    )
 
     for (const prof of profissionais) {
       if (prof.leadId && envio.messageId) await atualizarLeadMensagemId(prof.leadId, envio.messageId)
@@ -368,18 +446,33 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
       bairro,
       confianca: intencao.confianca,
       tempoTotalMs: Date.now() - inicio,
-      resultado: "match_bairro",
+      resultado: resultadoProfissionais.prioridadeMatch === 2 ? "match_regiao" : "match_bairro",
     })
     console.log(`[bot] Leads → ${profissionais.map(p => p.nome).join(", ")}`)
     return
   }
 
   // Prioridade 3: fallback cidade toda
-  const fallbacks = await buscarProfissionaisFallback(categoria, ignoreIds, 4)
+  const resultadoFallback = await buscarProfissionaisFallback(categoria, ignoreIds, 4)
+  if (resultadoFallback.status === "indisponivel") {
+    sessao.resultadoUltimaBusca = "indisponivel"
+    await enviarResposta(telefone, mensagens.buscaIndisponivel(), sessao)
+    await registrarMetricaMensagem({
+      contatoHash: hashContato(telefone),
+      categoria,
+      bairro,
+      confianca: intencao.confianca,
+      tempoTotalMs: Date.now() - inicio,
+      resultado: "erro",
+    })
+    return
+  }
+  const fallbacks = resultadoFallback.profissionais
 
   if (fallbacks.length > 0) {
     for (const prof of fallbacks) {
-      prof.bairros = await carregarBairrosDoProfissional(prof.id)
+      const bairrosAtendidos = await carregarBairrosDoProfissional(prof.id)
+      if (bairrosAtendidos.length > 0) prof.bairros = bairrosAtendidos
       sessao.profissionaisIndicados.push(prof.id)
       const leadId = await salvarLead({
         nomeCliente: nome,
@@ -398,7 +491,9 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
     }
 
     const proximoServico = prepararProximoServico(sessao)
-    const envio = await enviarMensagem(telefone, mensagens.profissionalFallback(fallbacks, categoria, bairro, proximoServico, sessao.urgente))
+    sessao.resultadoUltimaBusca = "fallback"
+    sessao.buscaConcluida = !sessao.aguardandoConfirmacaoServico
+    const envio = await enviarResposta(telefone, mensagens.profissionalFallback(fallbacks, categoria, bairro, proximoServico, sessao.urgente), sessao)
 
     for (const prof of fallbacks) {
       if (prof.leadId && envio.messageId) await atualizarLeadMensagemId(prof.leadId, envio.messageId)
@@ -420,7 +515,9 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
 
   // Sem match
   const proximoServico = prepararProximoServico(sessao)
-  await enviarMensagem(telefone, mensagens.semMatch(categoria, bairro, undefined, proximoServico))
+  sessao.resultadoUltimaBusca = "sem_match"
+  sessao.buscaConcluida = !sessao.aguardandoConfirmacaoServico
+  await enviarResposta(telefone, mensagens.semMatch(categoria, bairro, undefined, proximoServico), sessao)
   await salvarLead({
     nomeCliente: nome,
     whatsappCliente: telefone,
@@ -440,6 +537,17 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
     resultado: "sem_match",
   })
   console.log(`[bot] Sem match para ${categoria} em ${bairro}`)
+}
+
+async function enviarResposta(
+  telefone: string,
+  texto: string,
+  sessao: Sessao
+) {
+  const envio = await enviarMensagem(telefone, texto)
+  adicionarTurnoConversa(sessao, "assistant", texto)
+  await salvarSessao(telefone, sessao)
+  return envio
 }
 
 function prepararProximoServico(sessao: Sessao): string | null {

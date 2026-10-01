@@ -16,6 +16,28 @@ export interface Profissional {
   linkContato?: string
 }
 
+export interface ResultadoBuscaProfissionais {
+  status: "encontrado" | "sem_match" | "indisponivel"
+  profissionais: Profissional[]
+  prioridadeMatch: 1 | 2 | 3 | null
+}
+
+function resultadoBusca(
+  profissionais: Profissional[],
+  prioridadeMatch: 1 | 2 | 3 | null = null
+): ResultadoBuscaProfissionais {
+  return {
+    status: profissionais.length > 0 ? "encontrado" : "sem_match",
+    profissionais,
+    prioridadeMatch: profissionais.length > 0 ? prioridadeMatch : null,
+  }
+}
+
+function buscaIndisponivel(erro: unknown): ResultadoBuscaProfissionais {
+  console.error("[supabase] Falha ao buscar profissionais:", erro)
+  return { status: "indisponivel", profissionais: [], prioridadeMatch: null }
+}
+
 // ─── Busca de profissionais ───────────────────────────────────────────────────
 
 // Prioridade 1: mesmo bairro
@@ -28,30 +50,31 @@ export async function buscarProfissionais(
   bairro: string,
   ignoreIds: string[] = [],
   limit: number = 4
-): Promise<Profissional[]> {
+): Promise<ResultadoBuscaProfissionais> {
   // Resolve bairro_id e regiao_id
-  const { data: bairroData } = await supabase
+  const { data: bairroData, error: bairroError } = await supabase
     .from("bairros")
     .select("id, regiao_id, regioes(nome)")
     .ilike("nome", bairro)
     .maybeSingle()
 
-  const bairroId = bairroData?.id ?? null
-  const regiaoId = bairroData?.regiao_id ?? null
+  if (bairroError) return buscaIndisponivel(bairroError.message)
+  if (!bairroData) return resultadoBusca([])
+
+  const bairroId = bairroData.id
+  const regiaoId = bairroData.regiao_id
 
   // Busca por bairro exato (prioridade 1)
-  if (bairroId) {
-    const profs = await _buscarPorBairroId(categoria, bairroId, ignoreIds, limit)
-    if (profs.length > 0) return profs
-  }
+  const bairroResult = await _buscarPorBairroId(categoria, bairroId, ignoreIds, limit)
+  if (bairroResult.status !== "sem_match") return bairroResult
 
   // Busca por região (prioridade 2)
   if (regiaoId) {
-    const profs = await _buscarPorRegiaoId(categoria, regiaoId, bairroId, ignoreIds, limit)
-    if (profs.length > 0) return profs
+    const regiaoResult = await _buscarPorRegiaoId(categoria, regiaoId, bairroId, ignoreIds, limit)
+    if (regiaoResult.status !== "sem_match") return regiaoResult
   }
 
-  return []
+  return resultadoBusca([])
 }
 
 // Fallback: profissionais que atendem a cidade toda
@@ -59,7 +82,7 @@ export async function buscarProfissionaisFallback(
   categoria: string,
   ignoreIds: string[] = [],
   limit: number = 4
-): Promise<Profissional[]> {
+): Promise<ResultadoBuscaProfissionais> {
   let query = supabase
     .from("profissionais")
     .select("id, nome, whatsapp, categoria, ultimo_lead_em, atende_cidade_toda")
@@ -76,9 +99,10 @@ export async function buscarProfissionaisFallback(
   }
 
   const { data, error } = await query
-  if (error || !data) return []
+  if (error) return buscaIndisponivel(error.message)
+  if (!data) return resultadoBusca([])
 
-  return data.map((d: any) => ({
+  return resultadoBusca(data.map((d: any) => ({
     id: d.id,
     nome: d.nome,
     whatsapp: d.whatsapp,
@@ -86,7 +110,7 @@ export async function buscarProfissionaisFallback(
     bairros: ["Bauru e região"],
     regiao: null,
     status: d.assinatura_status,
-  }))
+  })), 3)
 }
 
 async function _buscarPorBairroId(
@@ -94,7 +118,7 @@ async function _buscarPorBairroId(
   bairroId: number,
   ignoreIds: string[],
   limit: number
-): Promise<Profissional[]> {
+): Promise<ResultadoBuscaProfissionais> {
   let query = supabase
     .from("profissional_bairros")
     .select(`
@@ -115,9 +139,10 @@ async function _buscarPorBairroId(
   }
 
   const { data, error } = await query
-  if (error || !data) return []
+  if (error) return buscaIndisponivel(error.message)
+  if (!data) return resultadoBusca([])
 
-  return _ordenarEMapear(data, limit, bairroId)
+  return resultadoBusca(_ordenarEMapear(data, limit, bairroId), 1)
 }
 
 async function _buscarPorRegiaoId(
@@ -126,20 +151,21 @@ async function _buscarPorRegiaoId(
   excluirBairroId: number | null,
   ignoreIds: string[],
   limit: number
-): Promise<Profissional[]> {
+): Promise<ResultadoBuscaProfissionais> {
   // Pega todos os bairros da região
-  const { data: bairrosRegiao } = await supabase
+  const { data: bairrosRegiao, error: bairrosError } = await supabase
     .from("bairros")
     .select("id")
     .eq("regiao_id", regiaoId)
 
-  if (!bairrosRegiao || bairrosRegiao.length === 0) return []
+  if (bairrosError) return buscaIndisponivel(bairrosError.message)
+  if (!bairrosRegiao || bairrosRegiao.length === 0) return resultadoBusca([])
 
   const bairroIds = bairrosRegiao
     .map((b: any) => b.id)
     .filter((id: number) => id !== excluirBairroId)
 
-  if (bairroIds.length === 0) return []
+  if (bairroIds.length === 0) return resultadoBusca([])
 
   let query = supabase
     .from("profissional_bairros")
@@ -161,9 +187,10 @@ async function _buscarPorRegiaoId(
   }
 
   const { data, error } = await query
-  if (error || !data) return []
+  if (error) return buscaIndisponivel(error.message)
+  if (!data) return resultadoBusca([])
 
-  return _ordenarEMapear(data, limit, null)
+  return resultadoBusca(_ordenarEMapear(data, limit, null), 2)
 }
 
 function _ordenarEMapear(data: any[], limit: number, bairroIdPrincipal: number | null): Profissional[] {

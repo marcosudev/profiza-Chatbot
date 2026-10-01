@@ -11,7 +11,14 @@ import { resolverBairro } from "./knowledge/bairros-bauru"
 import { extrairCoordenadas, coordenadasParaBairro } from "./geo"
 import { solicitouExclusaoDados } from "./privacidade"
 import { interpretarFeedback } from "./supabase"
+import { mensagens } from "./messages"
 import { resolverUrgenciaLocal } from "./ai"
+import { adicionarTurnoConversa, normalizarSessao, type Sessao } from "./session"
+import {
+  deveAtualizarSomenteUrgencia,
+  deveEvitarBuscaRepetida,
+  deveIniciarNovoPedido,
+} from "./conversation-state"
 
 interface TestCase {
   id: number
@@ -52,6 +59,33 @@ const casosDeTeste: TestCase[] = [
   { id: 22, descricao: "Urgência explícita", input: "preciso para hoje, é urgente", validacao: () => resolverUrgenciaLocal("preciso para hoje, é urgente") === true },
   { id: 23, descricao: "Sem urgência explícita", input: "não é urgente, pode aguardar", validacao: () => resolverUrgenciaLocal("não é urgente, pode aguardar") === false },
   { id: 24, descricao: "Urgência não informada", input: "preciso de um pintor", validacao: () => resolverUrgenciaLocal("preciso de um pintor") === null },
+  { id: 25, descricao: "Atualização de urgência não refaz busca", input: "com urgência", validacao: () => deveAtualizarSomenteUrgencia({ buscaConcluida: true, urgenciaMencionada: true, categoriaMencionada: false, bairroMencionado: false, intencao: "busca_profissional" }) && !deveAtualizarSomenteUrgencia({ buscaConcluida: true, urgenciaMencionada: true, categoriaMencionada: false, bairroMencionado: false, intencao: "mais_opcoes" }) },
+  { id: 26, descricao: "Pedido novo não herda bairro anterior", input: "quero um pintor", validacao: () => deveIniciarNovoPedido({ buscaConcluida: true, aguardandoConfirmacaoServico: false, categoriaMencionada: true, intencao: "busca_profissional" }) && !deveIniciarNovoPedido({ buscaConcluida: true, aguardandoConfirmacaoServico: true, categoriaMencionada: true, intencao: "busca_profissional" }) },
+  { id: 27, descricao: "Resposta vaga não repete busca", input: "preciso", validacao: () => deveEvitarBuscaRepetida({ buscaConcluida: true, aguardandoConfirmacaoServico: false, categoriaMencionada: false, bairroMencionado: false, urgenciaMencionada: null, intencao: "busca_profissional" }) },
+  { id: 28, descricao: "Memória recente mascara dados pessoais", input: "Meu telefone é (14) 99999-0000 e meu CPF é 123.456.789-09", validacao: () => {
+      const sessaoTeste = { turnosRecentes: [] } as unknown as Sessao
+      adicionarTurnoConversa(sessaoTeste, "user", "Meu telefone é (14) 99999-0000 e meu CPF é 123.456.789-09")
+      const texto = sessaoTeste.turnosRecentes?.[0]?.content ?? ""
+      return texto.includes("[telefone]") && texto.includes("[documento]") && !texto.includes("99999-0000") && !texto.includes("123.456.789-09")
+    }
+  },
+  { id: 29, descricao: "Sessão legada descarta localização obsoleta", input: "estado anterior ao deploy", validacao: () => {
+      const sessao = normalizarSessao({ categoria: "pintor", bairro: "Vila São Paulo", urgente: true, nome: "Maria" })
+      return sessao.categoria === null && sessao.bairro === null && sessao.urgente === null && sessao.nome === "Maria"
+    }
+  },
+  { id: 30, descricao: "Match regional é explicado ao cliente", input: "pintor no Centro", validacao: () => {
+      const profissional = { id: "test", nome: "Profissional Teste", whatsapp: "0000000000000", categoria: "pintor", bairros: ["Vila Falcão"], regiao: "Central", status: "trial" }
+      const resposta = mensagens.profissionalEncontrado([profissional], "pintor", "Centro", null, null, 2)
+      return resposta.includes("outros bairros da mesma região") && resposta.includes("O atendimento é urgente ou pode aguardar?")
+    }
+  },
+  { id: 31, descricao: "Urgência conhecida não repete pergunta", input: "é urgente", validacao: () => {
+      const profissional = { id: "test", nome: "Profissional Teste", whatsapp: "0000000000000", categoria: "pintor", bairros: ["Centro"], regiao: "Central", status: "trial" }
+      const resposta = mensagens.profissionalEncontrado([profissional], "pintor", "Centro", null, true)
+      return resposta.includes("Entendi que é urgente") && !resposta.includes("O atendimento é urgente ou pode aguardar?")
+    }
+  },
 
   // ── 4. Geolocalização ────────────────────────────────────────────────────────
   { id: 17, descricao: "Extrair coordenadas de texto de mapa", input: "__localizacao:-22.3145,-49.0587__", validacao: () => {

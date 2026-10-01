@@ -8,6 +8,17 @@ import type { Sessao } from "./session"
 const openai = new OpenAI({ apiKey: config.openai.apiKey })
 
 const LLM_MODEL = process.env.LLM_MODEL ?? "gpt-4o-mini"
+const intencoesValidas: Intencao["intencao"][] = [
+  "busca_profissional",
+  "mais_opcoes",
+  "feedback",
+  "cadastro_profissional",
+  "emergencia",
+  "fora_escopo",
+  "saudacao",
+  "reclamacao",
+  "falar_humano",
+]
 
 export interface Intencao {
   categoria: string | null
@@ -61,17 +72,21 @@ export async function extrairIntencao(
   const bairroLocal = resolverBairro(mensagem)
   const urgenteLocal = resolverUrgenciaLocal(mensagem)
 
-  const contextoSessao = sessao.categoria || sessao.bairro
-    ? `\nCONTEXTO DA SESSÃO ATUAL: categoria=${sessao.categoria ?? "não definida"}, bairro=${sessao.bairro ?? "não definido"}, urgência=${sessao.urgente == null ? "não informada" : sessao.urgente ? "urgente" : "pode aguardar"}`
-    : ""
+  const contextoSessao = [
+    `PEDIDO ATIVO: categoria=${sessao.categoria ?? "não definida"}, bairro=${sessao.bairro ?? "não definido"}, urgência=${sessao.urgente == null ? "não informada" : sessao.urgente ? "urgente" : "pode aguardar"}`,
+    `CAMPO PENDENTE: ${sessao.perguntaPendente ?? "nenhum"}`,
+    `ÚLTIMA BUSCA: ${sessao.resultadoUltimaBusca ?? "nenhuma"}`,
+  ].join("\n")
 
-  const system = promptSistema(montarContextoBairros(), montarContextoCategorias()) + contextoSessao
+  const system = `${promptSistema(montarContextoBairros(), montarContextoCategorias())}\n\n${contextoSessao}`
+  const historico = (sessao.turnosRecentes ?? []).slice(-8)
 
   try {
     const response = await openai.chat.completions.create({
       model: LLM_MODEL,
       messages: [
         { role: "system", content: system },
+        ...historico,
         { role: "user", content: mensagem },
       ],
       temperature: 0.3,
@@ -103,18 +118,19 @@ export async function extrairIntencao(
       if (resolvidoAI) {
         nomeBairro = resolvidoAI.bairro
         regiaoBairro = resolvidoAI.regiao
-      } else {
-        nomeBairro = parsed.bairro.trim()
-        regiaoBairro = parsed.regiao ?? "Outros"
       }
     }
+
+    const intencao = intencoesValidas.includes(parsed.intencao as Intencao["intencao"])
+      ? parsed.intencao as Intencao["intencao"]
+      : "busca_profissional"
 
     return {
       categoria,
       bairro: nomeBairro,
       regiao: regiaoBairro,
       urgente: urgenteLocal ?? (typeof parsed.urgente === "boolean" ? parsed.urgente : null),
-      intencao: parsed.intencao ?? "busca_profissional",
+      intencao,
       confianca: parsed.confianca ?? 0.5,
       mensagem: parsed.mensagem ?? "",
       categoriasAlternativas: catLocal?.ambiguo ? catLocal.alternativas : [],
