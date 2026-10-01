@@ -33,6 +33,15 @@ JOIN public.regioes r ON r.nome = 'Central'
 ON CONFLICT DO NOTHING;
 
 -- Bairros — Norte
+INSERT INTO public.bairros (nome, apelidos, regiao_id, cidade_id)
+SELECT 'Santa Luzia', ARRAY['santa luzia','st luzia','sta luzia','vila santa luzia'], r.id, 1
+FROM public.regioes r
+WHERE r.nome = 'Norte'
+  AND NOT EXISTS (
+    SELECT 1 FROM public.bairros b
+    WHERE b.nome = 'Santa Luzia' AND b.cidade_id = 1
+  );
+
 INSERT INTO public.bairros (nome, apelidos, regiao_id, cidade_id, latitude, longitude)
 SELECT b.nome, b.apelidos, r.id, 1, b.lat, b.lng
 FROM (VALUES

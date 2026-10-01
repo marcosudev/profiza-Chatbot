@@ -103,6 +103,7 @@ CREATE INDEX IF NOT EXISTS idx_leads_contato_hash
 
 -- Novos campos na tabela profissionais
 ALTER TABLE public.profissionais
+  ADD COLUMN IF NOT EXISTS ativo BOOLEAN DEFAULT false,
   ADD COLUMN IF NOT EXISTS nivel_verificacao SMALLINT DEFAULT 1,
   ADD COLUMN IF NOT EXISTS assinatura_status TEXT DEFAULT 'trial'
     CHECK (assinatura_status IN ('trial','ativa','inadimplente','cancelada','suspenso')),
