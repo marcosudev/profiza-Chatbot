@@ -74,15 +74,28 @@ export async function extrairIntencao(
       ? parsed.categoria
       : catLocal?.slug ?? null
 
-    // Valida bairro contra lista oficial
-    const bairroResolvido = parsed.bairro
-      ? resolverBairro(parsed.bairro) ?? bairroLocal
-      : bairroLocal
+    // Resolução de bairro resiliente (mapa oficial ou string limpa extraída pela IA)
+    let nomeBairro: string | null = null
+    let regiaoBairro: string | null = null
+
+    if (bairroLocal) {
+      nomeBairro = bairroLocal.bairro
+      regiaoBairro = bairroLocal.regiao
+    } else if (parsed.bairro) {
+      const resolvidoAI = resolverBairro(parsed.bairro)
+      if (resolvidoAI) {
+        nomeBairro = resolvidoAI.bairro
+        regiaoBairro = resolvidoAI.regiao
+      } else {
+        nomeBairro = parsed.bairro.trim()
+        regiaoBairro = parsed.regiao ?? "Outros"
+      }
+    }
 
     return {
       categoria,
-      bairro: bairroResolvido?.bairro ?? null,
-      regiao: bairroResolvido?.regiao ?? parsed.regiao ?? null,
+      bairro: nomeBairro,
+      regiao: regiaoBairro,
       intencao: parsed.intencao ?? "busca_profissional",
       confianca: parsed.confianca ?? 0.5,
       mensagem: parsed.mensagem ?? "",

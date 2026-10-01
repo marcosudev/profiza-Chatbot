@@ -45,6 +45,7 @@ const casosDeTeste: TestCase[] = [
   { id: 14, descricao: "Bairro oficial: Centro", input: "estou no centro", validacao: () => resolverBairro("estou no centro")?.bairro === "Centro" },
   { id: 15, descricao: "Bairro oficial: Higienópolis", input: "fica no higienópolis", validacao: () => resolverBairro("fica no higienópolis")?.bairro === "Jardim Higienópolis" },
   { id: 16, descricao: "Bairro oficial: Geisel", input: "preciso no geisel", validacao: () => resolverBairro("preciso no geisel")?.bairro === "Núcleo Presidente Geisel" },
+  { id: 17, descricao: "Bairro oficial: Santa Luzia", input: "Quero um encanador e sou do Santa Luzia", validacao: () => resolverBairro("Quero um encanador e sou do Santa Luzia")?.bairro === "Santa Luzia" },
 
   // ── 4. Geolocalização ────────────────────────────────────────────────────────
   { id: 17, descricao: "Extrair coordenadas de texto de mapa", input: "__localizacao:-22.3145,-49.0587__", validacao: () => {

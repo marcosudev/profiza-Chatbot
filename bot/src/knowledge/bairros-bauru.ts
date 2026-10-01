@@ -14,6 +14,9 @@ export const bairros: Bairro[] = [
   { nome: "Jardim Panorama", apelidos: ["panorama"], regiao: "Central" },
 
   // Norte
+  { nome: "Santa Luzia", apelidos: ["santa luzia", "st luzia", "sta luzia", "vila santa luzia", "vla santa luzia", "sou do santa luzia"], regiao: "Norte" },
+  { nome: "Pousada da Esperança", apelidos: ["pousada", "pousada da esperanca", "pousada da esperança"], regiao: "Norte" },
+  { nome: "Jardim Vânia Maria", apelidos: ["vania maria", "jardim vania maria"], regiao: "Norte" },
   { nome: "Jardim Estoril", apelidos: ["estoril"], regiao: "Norte" },
   { nome: "Parque Jaraguá", apelidos: ["jaraguá", "jaragua"], regiao: "Norte" },
   { nome: "Vila São Paulo", apelidos: ["são paulo", "sao paulo"], regiao: "Norte" },

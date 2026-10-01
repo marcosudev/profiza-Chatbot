@@ -242,7 +242,8 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
   }
 
   if (intencao.intencao === "saudacao" && !intencao.categoria) {
-    await enviarMensagem(telefone, mensagens.naoEntendeu())
+    const respostaHumanizada = intencao.mensagem?.trim() || mensagens.naoEntendeu()
+    await enviarMensagem(telefone, respostaHumanizada)
     return
   }
 
@@ -265,12 +266,12 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
 
   if (!categoria) {
     sessao.tentativasEsclarecimento++
-    // 2 tentativas sem sucesso → handoff
-    if (sessao.tentativasEsclarecimento >= 2) {
-      await _dispararHandoff(telefone, sessao, "2 tentativas sem identificar serviço", textos)
+    if (sessao.tentativasEsclarecimento >= 3) {
+      await _dispararHandoff(telefone, sessao, "3 tentativas sem identificar serviço", textos)
     }
     await salvarSessao(telefone, sessao)
-    await enviarMensagem(telefone, mensagens.naoEntendeu())
+    const msgHumanizada = intencao.mensagem?.trim() || mensagens.naoEntendeu()
+    await enviarMensagem(telefone, msgHumanizada)
     return
   }
 
@@ -287,7 +288,8 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
       status: "novo",
       mensagemOriginal: textos,
     })
-    await enviarMensagem(telefone, mensagens.pedirBairro(categoria))
+    const msgPedirBairro = intencao.mensagem?.trim() || mensagens.pedirBairro(categoria)
+    await enviarMensagem(telefone, msgPedirBairro)
     return
   }
 
