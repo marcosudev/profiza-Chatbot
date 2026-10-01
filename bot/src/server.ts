@@ -60,6 +60,14 @@ app.get("/", async () => {
 
 // ─── Webhook Evolution API ────────────────────────────────────────────────────
 
+app.get<{ Querystring: { secret?: string } }>("/webhook", async (request, reply) => {
+  const secret = request.headers["x-webhook-secret"] ?? request.query?.secret
+  if (config.webhookSecret && secret !== config.webhookSecret) {
+    return reply.status(401).send({ error: "unauthorized" })
+  }
+  return { ok: true, message: "Webhook endpoint ativo (envie requisições via POST)" }
+})
+
 app.post<{ Body: EvolutionWebhookPayload; Querystring: { secret?: string } }>("/webhook", async (request, reply) => {
   // RNF-04 — valida WEBHOOK_SECRET
   const secret = request.headers["x-webhook-secret"] ?? request.query?.secret
