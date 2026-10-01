@@ -15,6 +15,8 @@ import {
   buscarLeadParaRedirecionamento,
   registrarCliqueContato,
   buscarLeadsParaFeedbackCliente,
+  cadastrarProfissionaisMockups,
+  removerProfissionaisMockups,
 } from "./supabase"
 import { mensagens } from "./messages"
 import { processarUpdateTelegram, enviarResumoDiario, type TelegramUpdate } from "./telegram"
@@ -226,6 +228,26 @@ app.post<{ Body: TelegramUpdate }>("/webhook/telegram", async (request, reply) =
 app.post<{ Body: MpWebhookPayload }>("/webhook/mercadopago", async (request, reply) => {
   setImmediate(() => processarWebhookMp(request.body).catch(console.error))
   return reply.send({ ok: true })
+})
+
+// ─── Cadastro / Remoção de Profissionais Mockups para Testes ─────────────────
+
+app.post<{ Querystring: { secret?: string } }>("/seed-mock-profissionais", async (request, reply) => {
+  const secret = request.headers["x-webhook-secret"] ?? request.query?.secret
+  if (config.webhookSecret && secret !== config.webhookSecret) {
+    return reply.status(401).send({ error: "unauthorized" })
+  }
+  const cadastrados = await cadastrarProfissionaisMockups()
+  return reply.send({ ok: true, mensagem: "Profissionais mockups cadastrados com sucesso!", cadastrados })
+})
+
+app.delete<{ Querystring: { secret?: string } }>("/seed-mock-profissionais", async (request, reply) => {
+  const secret = request.headers["x-webhook-secret"] ?? request.query?.secret
+  if (config.webhookSecret && secret !== config.webhookSecret) {
+    return reply.status(401).send({ error: "unauthorized" })
+  }
+  await removerProfissionaisMockups()
+  return reply.send({ ok: true, mensagem: "Profissionais mockups removidos com sucesso!" })
 })
 
 // ─── Webhook Status Evolution API ────────────────────────────────────────────

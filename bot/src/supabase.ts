@@ -657,7 +657,105 @@ export async function registrarMetricaMensagem(dados: {
   }
 }
 
-// ─── Rastreio de Cliques & Redirecionamento ──────────────────────────────────
+// ─── Gerenciamento de Profissionais Mockups (Testes) ──────────────────────────
+
+export const MOCK_PROFISSIONAIS = [
+  {
+    nome: "Carlos Andrade (Encanador)",
+    categoria: "Encanador",
+    whatsapp: "5514991234567",
+    ativo: true,
+    nivel_verificacao: 2,
+    assinatura_status: "ativa",
+    atende_cidade_toda: true,
+  },
+  {
+    nome: "Marcos Obras (Pedreiro)",
+    categoria: "Pedreiro",
+    whatsapp: "5514997654321",
+    ativo: true,
+    nivel_verificacao: 2,
+    assinatura_status: "ativa",
+    atende_cidade_toda: true,
+  },
+  {
+    nome: "Roberto Tintas (Pintor)",
+    categoria: "Pintor",
+    whatsapp: "5514998881122",
+    ativo: true,
+    nivel_verificacao: 2,
+    assinatura_status: "ativa",
+    atende_cidade_toda: true,
+  },
+  {
+    nome: "Lucas Elétrica (Eletricista)",
+    categoria: "Eletricista",
+    whatsapp: "5514995554433",
+    ativo: true,
+    nivel_verificacao: 2,
+    assinatura_status: "ativa",
+    atende_cidade_toda: true,
+  },
+  {
+    nome: "Juliana Clima (Ar-condicionado)",
+    categoria: "Ar-condicionado",
+    whatsapp: "5514994443322",
+    ativo: true,
+    nivel_verificacao: 2,
+    assinatura_status: "ativa",
+    atende_cidade_toda: true,
+  },
+  {
+    nome: "Fernanda Verde (Jardinagem)",
+    categoria: "Jardinagem",
+    whatsapp: "5514993332211",
+    ativo: true,
+    nivel_verificacao: 2,
+    assinatura_status: "ativa",
+    atende_cidade_toda: true,
+  },
+  {
+    nome: "Rodrigo Tech (Informática)",
+    categoria: "Informática",
+    whatsapp: "5514992221100",
+    ativo: true,
+    nivel_verificacao: 2,
+    assinatura_status: "ativa",
+    atende_cidade_toda: true,
+  },
+]
+
+export async function cadastrarProfissionaisMockups(): Promise<string[]> {
+  const { data: bairros } = await supabase.from("bairros").select("id, nome")
+  const cadastrados: string[] = []
+
+  for (const p of MOCK_PROFISSIONAIS) {
+    const { data: prof, error } = await supabase
+      .from("profissionais")
+      .upsert(p, { onConflict: "whatsapp" })
+      .select("id, nome")
+      .single()
+
+    if (error || !prof) continue
+
+    cadastrados.push(prof.nome)
+
+    if (bairros && bairros.length > 0) {
+      const vinculos = bairros.map((b: any) => ({
+        profissional_id: prof.id,
+        bairro_id: b.id,
+      }))
+      await supabase.from("profissional_bairros").upsert(vinculos, { onConflict: "profissional_id,bairro_id" })
+    }
+  }
+
+  return cadastrados
+}
+
+export async function removerProfissionaisMockups(): Promise<void> {
+  const whatsapps = MOCK_PROFISSIONAIS.map(p => p.whatsapp)
+  await supabase.from("profissionais").delete().in("whatsapp", whatsapps)
+}
 
 export interface InfoRedirecionamentoLead {
   leadId: string
