@@ -169,6 +169,10 @@ export const mensagens = {
     ].join("\n")
   },
 
+  pedirServico(): string {
+    return "Claro, o que você precisa resolver? Pode me explicar do seu jeito."
+  },
+
   categoriaAmbigua(opcoes: string[]): string {
     return `Para eu acertar: qual serviço você precisa: ${opcoes.join(" ou ")}?`
   },
@@ -190,6 +194,22 @@ export const mensagens = {
       ``,
       `Em qual bairro de Bauru fica o serviço? Se tiver um prazo importante, pode me contar também.`,
     ].join("\n")
+  },
+
+  confirmarBairro(candidato: string, bairroOficial: string): string {
+    return `Você quis dizer *${bairroOficial}*, em vez de *${candidato}*? Se sim, pode responder “sim”; se não, me diga outro bairro ou uma referência próxima.`
+  },
+
+  bairroNaoEncontrado(candidato: string): string {
+    return `Não consegui confirmar *${candidato}* como bairro de Bauru. Pode me dizer outro nome de bairro ou um ponto de referência próximo?`
+  },
+
+  bairroAindaNaoConfirmado(candidato: string): string {
+    return `Ainda não consegui confirmar *${candidato}*. Vou pedir ajuda à equipe para localizar a região certa.`
+  },
+
+  naoConseguiValidarBairro(): string {
+    return "Não consegui validar esse bairro agora por uma falha temporária. Seu pedido continua salvo; tente novamente em alguns instantes."
   },
 
   atualizarUrgenciaSemMatch(categoria: string, bairro: string, urgente: boolean): string {

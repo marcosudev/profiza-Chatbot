@@ -10,6 +10,11 @@ export interface Sessao {
   versao?: 1
   categoria: string | null
   bairro: string | null
+  bairroCandidato?: string | null
+  bairroSugerido?: string | null
+  bairroSugeridoRegiao?: string | null
+  tentativasLocalizacao?: number
+  leadSemBairroRegistrado?: boolean
   regiao: string | null
   urgente?: boolean | null
   perguntaPendente?: "categoria" | "bairro" | "urgencia" | null
@@ -118,6 +123,10 @@ function sessaoVazia(): Sessao {
     versao: 1,
     categoria: null,
     bairro: null,
+    bairroCandidato: null,
+    bairroSugerido: null,
+    tentativasLocalizacao: 0,
+    leadSemBairroRegistrado: false,
     regiao: null,
     urgente: null,
     perguntaPendente: null,

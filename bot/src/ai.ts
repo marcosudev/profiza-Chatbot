@@ -23,6 +23,7 @@ const intencoesValidas: Intencao["intencao"][] = [
 export interface Intencao {
   categoria: string | null
   bairro: string | null
+  bairroCandidato: string | null
   regiao: string | null
   urgente: boolean | null
   intencao: "busca_profissional" | "mais_opcoes" | "feedback" | "cadastro_profissional" | "emergencia" | "fora_escopo" | "saudacao" | "reclamacao" | "falar_humano"
@@ -60,6 +61,29 @@ export function resolverUrgenciaLocal(mensagem: string): boolean | null {
     return true
   }
   return null
+}
+
+export function validarBairroExtraido(valor: string | null | undefined): {
+  bairro: string | null
+  bairroCandidato: string | null
+  regiao: string | null
+} {
+  if (!valor) return { bairro: null, bairroCandidato: null, regiao: null }
+
+  const candidato = valor
+    .replace(/\s+/g, " ")
+    .replace(/[^\p{L}\p{M} '-]/gu, "")
+    .trim()
+    .slice(0, 80)
+
+  if (!candidato || /^(null|desconhecido|nao informado|nao definido|outros|nao sei)$/i.test(candidato)) {
+    return { bairro: null, bairroCandidato: null, regiao: null }
+  }
+
+  const resolvido = resolverBairro(candidato)
+  return resolvido
+    ? { bairro: resolvido.bairro, bairroCandidato: null, regiao: resolvido.regiao }
+    : { bairro: null, bairroCandidato: candidato, regiao: null }
 }
 
 export async function extrairIntencao(
@@ -107,19 +131,9 @@ export async function extrairIntencao(
       : catLocal?.slug ?? null
 
     // Resolução de bairro resiliente (mapa oficial ou string limpa extraída pela IA)
-    let nomeBairro: string | null = null
-    let regiaoBairro: string | null = null
-
-    if (bairroLocal) {
-      nomeBairro = bairroLocal.bairro
-      regiaoBairro = bairroLocal.regiao
-    } else if (parsed.bairro) {
-      const resolvidoAI = resolverBairro(parsed.bairro)
-      if (resolvidoAI) {
-        nomeBairro = resolvidoAI.bairro
-        regiaoBairro = resolvidoAI.regiao
-      }
-    }
+    const bairroExtraido = bairroLocal
+      ? { bairro: bairroLocal.bairro, bairroCandidato: null, regiao: bairroLocal.regiao }
+      : validarBairroExtraido(parsed.bairro)
 
     const intencao = intencoesValidas.includes(parsed.intencao as Intencao["intencao"])
       ? parsed.intencao as Intencao["intencao"]
@@ -127,8 +141,9 @@ export async function extrairIntencao(
 
     return {
       categoria,
-      bairro: nomeBairro,
-      regiao: regiaoBairro,
+      bairro: bairroExtraido.bairro,
+      bairroCandidato: bairroExtraido.bairroCandidato,
+      regiao: bairroExtraido.regiao,
       urgente: urgenteLocal ?? (typeof parsed.urgente === "boolean" ? parsed.urgente : null),
       intencao,
       confianca: parsed.confianca ?? 0.5,
@@ -151,6 +166,7 @@ function fallback(
   return {
     categoria: catLocal?.ambiguo || categoriasSolicitadas.length > 1 ? null : catLocal?.slug ?? null,
     bairro: bairroLocal?.bairro ?? null,
+    bairroCandidato: null,
     regiao: bairroLocal?.regiao ?? null,
     urgente,
     intencao: "busca_profissional",

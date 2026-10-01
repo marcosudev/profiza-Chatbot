@@ -3,9 +3,15 @@ import { extrairIntencao, resolverUrgenciaLocal } from "./ai"
 import { categorias, resolverCategoria, resolverCategoriaPendente } from "./knowledge/categorias"
 import { resolverBairro } from "./knowledge/bairros-bauru"
 import {
+  deveAbrirNovoPedidoSemCategoria,
   deveAtualizarSomenteUrgencia,
   deveEvitarBuscaRepetida,
   deveIniciarNovoPedido,
+  deveTratarComoRespostaPendente,
+  confirmouBairroSugerido,
+  ehFragmentoDePedido,
+  refereBairroSugerido,
+  recusouBairroSugerido,
 } from "./conversation-state"
 import { adicionarTurnoConversa, carregarSessao, salvarSessao, type Sessao } from "./session"
 import {
@@ -26,6 +32,7 @@ import {
   registrarInteresseCidade,
   apagarDadosContato,
   registrarFeedbackCliente,
+  buscarBairroNoSupabase,
 } from "./supabase"
 import { enviarMensagem, enviarPresenca } from "./evolution"
 import { mensagens } from "./messages"
@@ -160,6 +167,18 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
 
   // ── Intenções especiais ──────────────────────────────────────────────────────
 
+  const respondendoEsclarecimento = deveTratarComoRespostaPendente({
+    perguntaPendente: sessao.perguntaPendente,
+    categoriaMencionada: Boolean(resolverCategoria(textos)),
+    bairroMencionado: Boolean(resolverBairro(textos)),
+    bairroCandidato: Boolean(intencao.bairroCandidato),
+    urgenciaMencionada: resolverUrgenciaLocal(textos),
+    confirmouSugestao: confirmouBairroSugerido(textos),
+    recusouSugestao: recusouBairroSugerido(textos),
+    refereSugestao: Boolean(sessao.bairroSugerido && refereBairroSugerido(textos, sessao.bairroSugerido)),
+    fragmentoDePedido: ehFragmentoDePedido(textos),
+  })
+
   if (intencao.intencao === "emergencia") {
     await enviarResposta(telefone, mensagens.emergencia(), sessao)
     return
@@ -170,7 +189,7 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
     return
   }
 
-  if (intencao.intencao === "fora_escopo") {
+  if (intencao.intencao === "fora_escopo" && !respondendoEsclarecimento) {
     // Verifica se cliente quer ser avisado sobre nova cidade
     const querAviso = /sim|quero|avisa|avise|pode/i.test(textos)
     if (sessao.ultimaIntencao === "fora_bauru" && querAviso) {
@@ -198,8 +217,144 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
   }
 
   const categoriaMencionada = resolverCategoria(textos)
-  const bairroMencionado = resolverBairro(textos)
+  let bairroMencionado = resolverBairro(textos)
   const urgenciaMencionada = resolverUrgenciaLocal(textos)
+
+  if (
+    !bairroMencionado &&
+    sessao.perguntaPendente === "bairro" &&
+    sessao.bairroSugerido &&
+    refereBairroSugerido(textos, sessao.bairroSugerido) &&
+    !recusouBairroSugerido(textos)
+  ) {
+    bairroMencionado = {
+      bairro: sessao.bairroSugerido,
+      regiao: sessao.bairroSugeridoRegiao ?? "Outros",
+    }
+    intencao.bairro = bairroMencionado.bairro
+    intencao.regiao = bairroMencionado.regiao
+  }
+
+  if (
+    sessao.perguntaPendente === "bairro" &&
+    sessao.bairroSugerido &&
+    confirmouBairroSugerido(textos)
+  ) {
+    bairroMencionado = {
+      bairro: sessao.bairroSugerido,
+      regiao: sessao.bairroSugeridoRegiao ?? "Outros",
+    }
+    intencao.bairro = bairroMencionado.bairro
+    intencao.regiao = bairroMencionado.regiao
+  } else if (
+    sessao.perguntaPendente === "bairro" &&
+    sessao.bairroSugerido &&
+    recusouBairroSugerido(textos) &&
+    !intencao.bairroCandidato &&
+    !bairroMencionado
+  ) {
+    const candidatoAnterior = sessao.bairroCandidato ?? sessao.bairroSugerido
+    sessao.bairroSugerido = null
+    sessao.bairroSugeridoRegiao = null
+    sessao.bairroCandidato = null
+    sessao.tentativasLocalizacao = (sessao.tentativasLocalizacao ?? 0) + 1
+    if (sessao.tentativasLocalizacao >= 2) {
+      await _dispararHandoff(telefone, sessao, "Não foi possível confirmar o bairro", textos)
+      await enviarResposta(telefone, mensagens.bairroAindaNaoConfirmado(candidatoAnterior), sessao)
+    } else {
+      await enviarResposta(telefone, mensagens.bairroNaoEncontrado(candidatoAnterior), sessao)
+    }
+    return
+  } else if (!bairroMencionado && intencao.bairroCandidato) {
+    const resolucao = await buscarBairroNoSupabase(intencao.bairroCandidato)
+    if (resolucao.status === "indisponivel") {
+      await enviarResposta(telefone, mensagens.naoConseguiValidarBairro(), sessao)
+      return
+    }
+
+    if (resolucao.status === "encontrado") {
+      bairroMencionado = { bairro: resolucao.bairro, regiao: resolucao.regiao ?? "Outros" }
+      intencao.bairro = bairroMencionado.bairro
+      intencao.regiao = bairroMencionado.regiao
+      sessao.bairroCandidato = null
+      sessao.bairroSugerido = null
+      sessao.bairroSugeridoRegiao = null
+      sessao.tentativasLocalizacao = 0
+    } else if (resolucao.status === "aproximado") {
+      const mesmaSugestao = sessao.bairroSugerido === resolucao.bairro
+      if (mesmaSugestao) {
+        bairroMencionado = { bairro: resolucao.bairro, regiao: resolucao.regiao ?? "Outros" }
+        intencao.bairro = bairroMencionado.bairro
+        intencao.regiao = bairroMencionado.regiao
+        sessao.bairroCandidato = null
+        sessao.bairroSugerido = null
+        sessao.bairroSugeridoRegiao = null
+        sessao.tentativasLocalizacao = 0
+      } else {
+        sessao.bairroCandidato = intencao.bairroCandidato
+        sessao.bairroSugerido = resolucao.bairro
+        sessao.bairroSugeridoRegiao = resolucao.regiao
+        sessao.perguntaPendente = "bairro"
+        await enviarResposta(telefone, mensagens.confirmarBairro(intencao.bairroCandidato, resolucao.bairro), sessao)
+        return
+      }
+    } else {
+      sessao.tentativasLocalizacao = (sessao.tentativasLocalizacao ?? 0) + 1
+      sessao.bairroCandidato = intencao.bairroCandidato
+      sessao.perguntaPendente = "bairro"
+      if (sessao.tentativasLocalizacao >= 2) {
+        await _dispararHandoff(telefone, sessao, "Não foi possível confirmar o bairro", textos)
+        await enviarResposta(telefone, mensagens.bairroAindaNaoConfirmado(intencao.bairroCandidato), sessao)
+      } else {
+        await enviarResposta(telefone, mensagens.bairroNaoEncontrado(intencao.bairroCandidato), sessao)
+      }
+      return
+    }
+  }
+
+  if (bairroMencionado) {
+    sessao.bairroCandidato = null
+    sessao.bairroSugerido = null
+    sessao.bairroSugeridoRegiao = null
+    sessao.tentativasLocalizacao = 0
+    intencao.bairro = bairroMencionado.bairro
+    intencao.regiao = bairroMencionado.regiao
+  }
+
+  if (deveAbrirNovoPedidoSemCategoria({
+    buscaConcluida: Boolean(sessao.buscaConcluida),
+    categoriaMencionada: Boolean(categoriaMencionada),
+    intencao: intencao.intencao,
+    mensagem: textos,
+  })) {
+    sessao.categoria = null
+    sessao.bairro = null
+    sessao.regiao = null
+    sessao.urgente = null
+    sessao.profissionaisIndicados = []
+    sessao.servicosNaFila = []
+    sessao.servicoAtual = null
+    sessao.aguardandoConfirmacaoServico = false
+    sessao.buscaConcluida = false
+    sessao.resultadoUltimaBusca = null
+    sessao.perguntaPendente = "categoria"
+    sessao.bairroCandidato = null
+    sessao.bairroSugerido = null
+    sessao.bairroSugeridoRegiao = null
+    sessao.tentativasLocalizacao = 0
+    sessao.leadSemBairroRegistrado = false
+    if (ehFragmentoDePedido(textos)) {
+      await salvarSessao(telefone, sessao)
+      return
+    }
+    await enviarResposta(telefone, mensagens.pedirServico(), sessao)
+    return
+  }
+
+  if (sessao.perguntaPendente === "categoria" && ehFragmentoDePedido(textos)) {
+    await salvarSessao(telefone, sessao)
+    return
+  }
 
   if (urgenciaMencionada !== null && deveAtualizarSomenteUrgencia({
     buscaConcluida: Boolean(sessao.buscaConcluida),
@@ -229,6 +384,11 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
     sessao.buscaConcluida = false
     sessao.resultadoUltimaBusca = null
     sessao.perguntaPendente = null
+    sessao.bairroCandidato = null
+    sessao.bairroSugerido = null
+    sessao.bairroSugeridoRegiao = null
+    sessao.tentativasLocalizacao = 0
+    sessao.leadSemBairroRegistrado = false
     intencao.categoria = categoriaMencionada.slug
     intencao.urgente = urgenciaMencionada
     intencao.bairro = bairroMencionado?.bairro ?? (manterMesmoLocal ? sessao.bairro : null)
@@ -336,15 +496,18 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
     sessao.perguntaPendente = "bairro"
     sessao.tentativasEsclarecimento++
     await salvarSessao(telefone, sessao)
-    await salvarLead({
-      nomeCliente: nome,
-      whatsappCliente: telefone,
-      categoria,
-      bairro: "Não informado",
-      profissionalId: null,
-      status: "novo",
-      mensagemOriginal: textos,
-    })
+    if (!sessao.leadSemBairroRegistrado) {
+      await salvarLead({
+        nomeCliente: nome,
+        whatsappCliente: telefone,
+        categoria,
+        bairro: "Não informado",
+        profissionalId: null,
+        status: "novo",
+        mensagemOriginal: textos,
+      })
+      sessao.leadSemBairroRegistrado = true
+    }
     const respostaModelo = intencao.mensagem?.trim() ?? ""
     const msgPedirBairro = /\b(bairro|regi[aã]o)\b/i.test(respostaModelo)
       ? respostaModelo

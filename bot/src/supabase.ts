@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { config } from "./config"
 import { hashContato, hashContatoLegado } from "./privacidade"
+import { resolverBairroAproximado } from "./knowledge/bairros-bauru"
 
 const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey)
 
@@ -20,6 +21,52 @@ export interface ResultadoBuscaProfissionais {
   status: "encontrado" | "sem_match" | "indisponivel"
   profissionais: Profissional[]
   prioridadeMatch: 1 | 2 | 3 | null
+}
+
+export type ResultadoResolucaoBairro =
+  | { status: "encontrado"; bairro: string; regiao: string | null }
+  | { status: "aproximado"; bairro: string; regiao: string | null }
+  | { status: "nao_encontrado" }
+  | { status: "indisponivel" }
+
+export async function buscarBairroNoSupabase(nome: string): Promise<ResultadoResolucaoBairro> {
+  const nomeExato = nome.replace(/[\\%_]/g, "\\$&")
+  const { data, error } = await supabase
+    .from("bairros")
+    .select("nome, regioes(nome)")
+    .ilike("nome", nomeExato)
+    .maybeSingle()
+
+  if (error) {
+    if (error.code === "PGRST116") return { status: "nao_encontrado" }
+    console.error("[supabase] Falha ao resolver bairro:", error.message)
+    return { status: "indisponivel" }
+  }
+  if (data) return bairroBancoResultado(data, "encontrado")
+
+  const { data: bairrosBanco, error: listaError } = await supabase
+    .from("bairros")
+    .select("nome, regioes(nome)")
+  if (listaError) {
+    console.error("[supabase] Falha ao carregar bairros para correção:", listaError.message)
+    return { status: "indisponivel" }
+  }
+
+  const candidatos = (bairrosBanco ?? []).map((bairro: any) => ({
+    nome: bairro.nome,
+    regiao: Array.isArray(bairro.regioes) ? bairro.regioes[0]?.nome ?? null : bairro.regioes?.nome ?? null,
+  }))
+  const aproximado = resolverBairroAproximado(nome, candidatos)
+  return aproximado ? { status: "aproximado", ...aproximado } : { status: "nao_encontrado" }
+}
+
+function bairroBancoResultado(
+  bairro: { nome: string; regioes: { nome: string } | { nome: string }[] | null },
+  status: "encontrado" | "aproximado"
+): Extract<ResultadoResolucaoBairro, { status: "encontrado" | "aproximado" }> {
+  const relacaoRegiao = bairro.regioes
+  const regiao = Array.isArray(relacaoRegiao) ? relacaoRegiao[0]?.nome ?? null : relacaoRegiao?.nome ?? null
+  return { status, bairro: bairro.nome, regiao }
 }
 
 function resultadoBusca(

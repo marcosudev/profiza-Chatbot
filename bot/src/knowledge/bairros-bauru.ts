@@ -96,6 +96,32 @@ function distanciaEdicao(primeira: string, segunda: string): number {
   return linhaAnterior[segunda.length]
 }
 
+export function resolverBairroAproximado(
+  texto: string,
+  candidatos: Array<{ nome: string; regiao: string | null }>
+): { bairro: string; regiao: string | null } | null {
+  const consulta = normalizar(texto)
+  if (!consulta) return null
+
+  let menorDistancia = Infinity
+  const melhores = new Map<string, string | null>()
+  for (const candidato of candidatos) {
+    const nome = normalizar(candidato.nome)
+    if (Math.abs(nome.length - consulta.length) > 2) continue
+    const distancia = distanciaEdicao(consulta, nome)
+    if (distancia > 2) continue
+    if (distancia < menorDistancia) {
+      menorDistancia = distancia
+      melhores.clear()
+    }
+    if (distancia === menorDistancia) melhores.set(candidato.nome, candidato.regiao)
+  }
+
+  if (melhores.size !== 1) return null
+  const [bairro, regiao] = [...melhores.entries()][0]
+  return { bairro, regiao }
+}
+
 function resolverBairroComErro(norm: string): { bairro: string; regiao: string } | null {
   const palavras = norm.split(" ").filter(Boolean)
   const candidatos = bairros.flatMap(b =>

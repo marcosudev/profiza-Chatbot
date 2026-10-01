@@ -8,6 +8,7 @@ process.env.EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY || "test_key"
 
 import { resolverCategoria, resolverCategoriasSolicitadas } from "./knowledge/categorias"
 import { resolverBairro } from "./knowledge/bairros-bauru"
+import { resolverBairroAproximado } from "./knowledge/bairros-bauru"
 import { extrairCoordenadas, coordenadasParaBairro } from "./geo"
 import { solicitouExclusaoDados } from "./privacidade"
 import { interpretarFeedback } from "./supabase"
@@ -15,9 +16,15 @@ import { mensagens } from "./messages"
 import { resolverUrgenciaLocal } from "./ai"
 import { adicionarTurnoConversa, normalizarSessao, type Sessao } from "./session"
 import {
+  deveAbrirNovoPedidoSemCategoria,
   deveAtualizarSomenteUrgencia,
   deveEvitarBuscaRepetida,
   deveIniciarNovoPedido,
+  deveTratarComoRespostaPendente,
+  confirmouBairroSugerido,
+  ehFragmentoDePedido,
+  refereBairroSugerido,
+  recusouBairroSugerido,
 } from "./conversation-state"
 
 interface TestCase {
@@ -62,6 +69,13 @@ const casosDeTeste: TestCase[] = [
   { id: 25, descricao: "Atualização de urgência não refaz busca", input: "com urgência", validacao: () => deveAtualizarSomenteUrgencia({ buscaConcluida: true, urgenciaMencionada: true, categoriaMencionada: false, bairroMencionado: false, intencao: "busca_profissional" }) && !deveAtualizarSomenteUrgencia({ buscaConcluida: true, urgenciaMencionada: true, categoriaMencionada: false, bairroMencionado: false, intencao: "mais_opcoes" }) },
   { id: 26, descricao: "Pedido novo não herda bairro anterior", input: "quero um pintor", validacao: () => deveIniciarNovoPedido({ buscaConcluida: true, aguardandoConfirmacaoServico: false, categoriaMencionada: true, intencao: "busca_profissional" }) && !deveIniciarNovoPedido({ buscaConcluida: true, aguardandoConfirmacaoServico: true, categoriaMencionada: true, intencao: "busca_profissional" }) },
   { id: 27, descricao: "Resposta vaga não repete busca", input: "preciso", validacao: () => deveEvitarBuscaRepetida({ buscaConcluida: true, aguardandoConfirmacaoServico: false, categoriaMencionada: false, bairroMencionado: false, urgenciaMencionada: null, intencao: "busca_profissional" }) },
+  { id: 32, descricao: "Início de pedido não retoma pedido anterior", input: "Quero um", validacao: () => deveAbrirNovoPedidoSemCategoria({ buscaConcluida: true, categoriaMencionada: false, intencao: "busca_profissional", mensagem: "Quero um" }) && !deveAbrirNovoPedidoSemCategoria({ buscaConcluida: true, categoriaMencionada: false, intencao: "mais_opcoes", mensagem: "quero mais" }) },
+  { id: 33, descricao: "Fragmento aguarda continuação do usuário", input: "Um", validacao: () => ehFragmentoDePedido("Um") && !ehFragmentoDePedido("um pedreiro") },
+  { id: 34, descricao: "Confirmação simples aceita bairro sugerido", input: "Sim", validacao: () => confirmouBairroSugerido("Sim") && confirmouBairroSugerido("É esse mesmo") && !confirmouBairroSugerido("Não, outro bairro") },
+  { id: 35, descricao: "Erro de digitação sugere candidato único do banco", input: "Jardim Oropa", validacao: () => resolverBairroAproximado("Jardim Oropa", [{ nome: "Jardim Europa", regiao: "Central" }])?.bairro === "Jardim Europa" && resolverBairroAproximado("Jardim Oropa", [{ nome: "Jardim Aropa", regiao: "Central" }, { nome: "Jardim Eropa", regiao: "Norte" }]) === null },
+  { id: 36, descricao: "Recusa limpa sugestão incorreta", input: "não, outro bairro", validacao: () => recusouBairroSugerido("não, outro bairro") && !recusouBairroSugerido("sim, é esse") },
+  { id: 37, descricao: "Correção de localização não cai em fora de escopo", input: "Desculpa, Europa", validacao: () => deveTratarComoRespostaPendente({ perguntaPendente: "bairro", categoriaMencionada: false, bairroMencionado: false, bairroCandidato: true, urgenciaMencionada: null, confirmouSugestao: false, recusouSugestao: false, refereSugestao: false, fragmentoDePedido: false }) && deveTratarComoRespostaPendente({ perguntaPendente: "bairro", categoriaMencionada: false, bairroMencionado: false, bairroCandidato: false, urgenciaMencionada: null, confirmouSugestao: false, recusouSugestao: false, refereSugestao: true, fragmentoDePedido: false }) && !deveTratarComoRespostaPendente({ perguntaPendente: null, categoriaMencionada: false, bairroMencionado: false, bairroCandidato: false, urgenciaMencionada: null, confirmouSugestao: false, recusouSugestao: false, refereSugestao: false, fragmentoDePedido: false }) },
+  { id: 38, descricao: "Apelido corrige sugestão usando contexto", input: "Desculpa, Europa", validacao: () => refereBairroSugerido("Desculpa, Europa", "Jardim Europa") && !refereBairroSugerido("Desculpa, Centro", "Jardim Europa") },
   { id: 28, descricao: "Memória recente mascara dados pessoais", input: "Meu telefone é (14) 99999-0000 e meu CPF é 123.456.789-09", validacao: () => {
       const sessaoTeste = { turnosRecentes: [] } as unknown as Sessao
       adicionarTurnoConversa(sessaoTeste, "user", "Meu telefone é (14) 99999-0000 e meu CPF é 123.456.789-09")

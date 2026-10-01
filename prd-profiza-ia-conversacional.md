@@ -3,9 +3,9 @@
 | Campo | Valor |
 |---|---|
 | Produto | Profiza Chatbot via WhatsApp |
-| Versão | 1.0 |
+| Versão | 1.1 |
 | Data | 30 de setembro de 2026 |
-| Status | Proposta para validação de produto e operação |
+| Status | Baseline de implementação; produção em massa condicionada aos gates deste documento |
 | Escopo inicial | Bauru/SP |
 | Sistemas envolvidos | Bot Node.js/TypeScript, OpenAI, Evolution API e Supabase |
 | Documento relacionado | `PRD-Profiza-Chatbot-v2.1.md` |
@@ -33,18 +33,18 @@ Uma conversa natural não significa dar acesso irrestrito ao modelo. A IA pode d
 
 O bot já usa um LLM para extrair intenção e redigir respostas, mantém estado JSON por contato no Supabase e combina reconhecedores locais de categorias e bairros com interpretação do modelo. A busca de profissionais é executada no código: tenta bairro, região e, em outro caminho, profissionais que atendem a cidade toda. A elegibilidade considera profissional ativo, verificação mínima e assinatura em teste ou ativa.
 
-Na implementação atual, o modelo recebe o lote de mensagens processado e campos resumidos da sessão, não um histórico conversacional completo. A sessão contém um único contexto de categoria e bairro, o que pode fazer um pedido novo herdar informações do pedido anterior. A consulta já aplica rodízio por `ultimo_lead_em`; avaliação, agenda, disponibilidade atual e urgência ainda não formam um ranking operacional completo. A busca e a redação da recomendação também são etapas controladas pelo bot, não uma ferramenta de busca invocada pelo modelo.
+Na implementação atual, o modelo recebe o lote processado, até oito turnos recentes sanitizados e o estado resumido do pedido ativo. A sessão é versionada e descarta o contexto ativo legado sem apagar o nome do cliente. A busca retorna estados distintos para resultado, ausência e falha técnica; prioriza bairro, região e cidade e expõe a prioridade do match. A resolução local normaliza erros comuns, e um nome desconhecido é validado contra `bairros` no Supabase; uma aproximação só pode ser confirmada no contexto da conversa. O código possui testes golden para essas regras, mas ainda não dispõe de testes de integração OpenAI/Supabase/Evolution, teste de carga ou piloto operacional. Avaliação, agenda e disponibilidade atual ainda não formam um ranking operacional completo. A busca e a redação da recomendação são controladas pelo bot, não uma ferramenta de busca invocada diretamente pelo modelo.
 
 | Área | Estado observado | Evolução requerida |
 |---|---|---|
-| Interpretação | Categoria, bairro, intenção e resposta em JSON, com normalização local | Extrair entidades por pedido, confiança e correções sem perder contexto |
-| Contexto | Sessão persistida com um conjunto principal de campos | Separar pedido ativo, pedidos anteriores e fatos recentes relevantes |
+| Interpretação | JSON estruturado, normalização local e até oito turnos recentes | Validar em conversas completas com OpenAI e Evolution simulados |
+| Contexto | Sessão versionada, pedido ativo, pergunta pendente e histórico sanitizado | Completar estado multipedido e validar concorrência por contato |
 | Mensagens fragmentadas | Buffer com debounce antes do processamento | Avaliar as mensagens em conjunto e manter a ordem por contato |
-| Busca | Consultas Supabase filtradas por categoria, bairro/região e elegibilidade | Expor busca tipada e rastreável ao orquestrador, com critérios de ranking explícitos |
+| Busca | Resultado tipado: encontrado, sem match ou indisponível; bairro, região e fallback municipal | Integração, carga, tempos-limite, auditoria e métricas em ambiente de teste |
 | Recomendação | Dados do profissional vêm do banco; resposta usa template | Manter essa garantia e permitir que a IA explique o match somente com dados retornados |
 | Urgência | Pode ser reconhecida e mantida na sessão | Distinguir serviço urgente de emergência e definir uso operacional sem prometer prazo |
 | Sem resultado | Resposta informa ausência de cadastro e registra lead | Não prometer aviso futuro sem consentimento e mecanismo real de notificação |
-| Qualidade | Testes unitários/golden set de classificadores | Adicionar testes de conversas completas, busca e segurança da recomendação |
+| Qualidade | 39+ casos golden para classificação, estado e regras de conversação | Golden set anonimizado, integração, carga, piloto e aprovação de operação |
 
 ## 4. Visão e objetivos
 
@@ -128,6 +128,8 @@ Precisa entender por que uma categoria ou profissional foi recomendado, revisar 
 - O bot deve analisar o lote completo recebido após o debounce, mantendo a ordem das mensagens.
 - A interpretação deve considerar o pedido ativo e as últimas trocas relevantes da sessão.
 - Mensagens como “sim”, “um”, “isso”, “pode aguardar”, “na Vila São Paulo” ou “na verdade, Centro” devem ser interpretadas em relação à pergunta pendente.
+- A interpretação deve distinguir uma resposta completa de um fragmento intermediário de digitação (“Quero”, “Quero um”, “Um”). Fragmentos reconhecidos não podem reabrir nem responder com dados do pedido anterior.
+- Resposta a esclarecimento pendente deve continuar no fluxo mesmo que o classificador isolado atribua baixa confiança ou sugira `fora_escopo`; exceções de segurança, reclamação e pedido humano continuam prioritárias.
 - Uma correção explícita do cliente substitui o valor extraído anteriormente.
 - O sistema deve distinguir uma resposta de esclarecimento de um novo pedido, saudação, reclamação, feedback ou pedido de atendente.
 - O texto do cliente é dado não confiável; instruções embutidas não podem alterar regras, permissões ou ferramentas.
@@ -156,6 +158,8 @@ Valores de `urgency`: `unknown`, `flexible`, `urgent` ou `emergency`. O modelo p
 
 - Categoria deve ser um slug cadastrado ou uma lista curta de alternativas válidas.
 - Bairro deve ser resolvido para nome e identificador válidos; texto livre não confirmado não pode ser usado como filtro de banco.
+- A saída deve separar `neighborhood` validado de `neighborhood_candidate` livre. Candidato não confirmado nunca pode iniciar busca ou aparecer como bairro atendido.
+- Nome exato pode ser validado na tabela `bairros`; erro ortográfico pode gerar sugestão somente quando há um candidato único próximo entre nomes retornados do banco. Candidato aproximado deve ser confirmado pelo cliente antes da busca.
 - Se houver referência ambígua, perguntar em vez de adivinhar.
 - Urgência deve ser reconhecida por pistas explícitas, sem deduzir emergência apenas porque o cliente diz “preciso logo”.
 - Confiança deve ser registrada e usada para decidir entre busca e esclarecimento, não exibida como fato ao cliente.
@@ -168,6 +172,9 @@ Valores de `urgency`: `unknown`, `flexible`, `urgent` ou `emergency`. O modelo p
 - Ao identificar novo serviço sem indicação de continuidade, iniciar um novo pedido e não herdar automaticamente a urgência ou a lista de profissionais do anterior.
 - Pedidos com múltiplos serviços podem ser atendidos em sequência, preservando a localização compartilhada quando o cliente não a corrigir.
 - Respostas vagas que não atendem à pergunta pendente não podem disparar a busca com dados incompletos nem repetir mensagens de “sem profissional”. O bot deve reformular uma vez, oferecer opções simples ou chamar atendente conforme o caso.
+- Ao iniciar um pedido em mensagens fragmentadas, limpar o estado anterior imediatamente, aguardar os fragmentos curtos e só perguntar pelo serviço quando houver pausa ou texto suficiente; nunca responder sobre a categoria/localização anterior.
+- Se o cliente rejeitar uma sugestão de bairro, limpar a sugestão e solicitar outro nome ou referência. Uma confirmação negativa nunca pode autorizar a mesma sugestão.
+- Após no máximo duas tentativas de localizar um bairro não cadastrado ou ambíguo, encaminhar para humano sem criar múltiplos leads sem localização.
 - Ao expirar a sessão, iniciar um pedido novo; histórico de leads permanece sujeito à retenção definida.
 
 ### RF-04 — Condução natural da conversa
@@ -177,6 +184,7 @@ Valores de `urgency`: `unknown`, `flexible`, `urgent` ou `emergency`. O modelo p
 - Evitar frases idênticas em todos os turnos, saudações repetidas e linguagem excessivamente corporativa.
 - Evitar repetir categoria, bairro ou urgência já confirmados.
 - Com serviço identificado e bairro ausente, perguntar em qual bairro fica o serviço. Pode perguntar também se há um prazo importante, desde que não transforme a busca em formulário.
+- Quando o cliente corrige uma sugestão de bairro de modo abreviado (“Desculpa, Europa”), usar o bairro oficial sugerido e confirmado pelo Supabase como contexto; não recomeçar do zero nem repetir a pergunta genérica.
 - Com serviço e bairro suficientes para pesquisar, executar a busca sem exigir a resposta de urgência.
 - Urgência é opcional para a busca. Perguntar uma vez quando ajudar a qualificar o pedido ou quando o cliente mencionar prazo; a pergunta não deve atrasar uma busca já possível.
 - Se o cliente não responder uma pergunta opcional e reiterar o pedido, prosseguir com os dados já disponíveis.
@@ -225,6 +233,7 @@ No lançamento, “melhor” significa **mais compatível e elegível**, não �
 - Quando não houver profissional, registrar a solicitação conforme política de dados e explicar com honestidade o que pode ser feito.
 - Só dizer “vamos avisar quando houver alguém” se houver consentimento do cliente e mecanismo ativo de notificação futura. Caso contrário, perguntar se deseja registrar interesse ou orientar a tentar novamente.
 - Um novo texto do cliente sobre o mesmo serviço não deve gerar respostas repetidas de ausência de resultado sem nova busca ou pergunta útil.
+- Não criar um novo lead sem localização em cada tentativa de esclarecimento. Registrar o pedido incompleto no máximo uma vez e só criar lead de indicação após resolver os dados necessários, respeitando a política de retenção e consentimento.
 
 ### RF-09 — Urgência, emergência e segurança
 
@@ -325,6 +334,13 @@ Metas provisórias para o piloto; confirmar após estabelecer uma linha de base 
 12. Uma tentativa de prompt injection não altera regras, campos permitidos, contatos exibidos ou acesso a dados.
 13. Pedir atendente pausa a automação daquele contato e encaminha o contexto mínimo necessário.
 14. Mensagens e logs não expõem telefone do cliente em texto aberto fora dos fluxos autorizados.
+15. A sequência “Quero” → “Um” → “Pedreiro” inicia um pedido novo, não produz recomendação do pedido anterior e pergunta apenas o bairro que falta.
+16. A resposta “Jardim Oropa” pode sugerir “Jardim Europa” somente se o último nome existir no Supabase e for o único candidato próximo; o bot pede confirmação antes de consultar profissionais.
+17. Depois da sugestão “Jardim Europa”, “Desculpa, Europa” deve recuperar a sugestão validada e prosseguir sem repetir a pergunta genérica de bairro nem cair em `fora_escopo`.
+18. Se o cliente disser “não, outro bairro”, a sugestão anterior é removida e nunca será aplicada silenciosamente.
+19. Depois de duas tentativas sem localizar um bairro, a conversa é encaminhada a humano e não cria leads vazios repetidos.
+20. Após match, perguntar sobre urgência no máximo uma vez quando ela ainda não foi informada; resposta de urgência atualiza o pedido, sem repetir a mesma busca ou criar outro lead.
+21. Sessões antigas sem versão não reutilizam serviço, bairro ou urgência no pedido novo.
 
 ## 13. Conversas de referência
 
@@ -384,6 +400,24 @@ Metas provisórias para o piloto; confirmar após estabelecer uma linha de base 
 
 **Comportamento esperado:** não inventar contato; pedir serviço/localização ou explicar que só indica profissionais cadastrados.
 
+### 13.9 Regressão observada em conversa real — pedido fragmentado e bairro corrigido
+
+**Histórico anterior:** o bot indicou ou tentou buscar eletricista no Centro.
+
+**Cliente:** Quero / Um / Pedreiro / Urgência.
+
+**Comportamento esperado:** tratar o lote ou os fragmentos como início de um novo pedido. Não responder sobre o eletricista nem sobre o Centro. Ao identificar pedreiro, guardar urgência e perguntar somente o bairro faltante.
+
+**Cliente:** Jardim Oropa.
+
+**Comportamento esperado:** comparar com bairros oficiais retornados pelo Supabase. Se “Jardim Europa” existir e for o único candidato próximo, perguntar “Você quis dizer Jardim Europa?”. Se não existir ou houver empate, pedir uma referência ou outro bairro. Não usar a grafia “Jardim Oropa” no filtro de profissionais.
+
+**Cliente:** Desculpa, Europa.
+
+**Comportamento esperado:** entender “Europa” como correção à sugestão pendente de “Jardim Europa”, reusar o nome oficial confirmado no Supabase e executar uma única busca de pedreiro. Não reiniciar a conversa, não repetir a pergunta de bairro, não recuperar o pedido de eletricista e não emitir `fora_escopo`.
+
+**Resposta final esperada:** reconhecer o bairro confirmado, informar o resultado real do banco e apresentar os profissionais elegíveis; se não houver, explicar uma vez e oferecer região próxima ou atendimento humano.
+
 ## 14. Plano de testes
 
 ### Unitários
@@ -404,6 +438,9 @@ Metas provisórias para o piloto; confirmar após estabelecer uma linha de base 
 
 - Manter conjunto anonimizado de pelo menos 100 conversas representativas antes de ampliar o piloto.
 - Incluir mensagens curtas/fracionadas, gírias, erros ortográficos, áudio transcrito, correções, bairros homônimos, mais de um serviço, urgência, negação, emergência, pedidos repetidos, ausência de profissionais, reclamação e prompt injection.
+- Incluir trajetórias multi-turno com variações de fragmentação e correção: “Quero um” → “Pedreiro”; “Jardim Oropa” → confirmação “sim”; “Jardim Oropa” → “Desculpa, Europa”; sugestão rejeitada “não, outro bairro”; e entrada em partes com atraso superior ao debounce.
+- Incluir bairros que existem somente no Supabase e bairros que não existem nem no catálogo nem no banco; testar sugestão única, empate e ausência de candidatos.
+- Verificar que cada trajetória gere no máximo uma busca e um lead válido, exceto ação explícita de “mais opções” ou mudança de localização.
 - Avaliar extração e comportamento conversacional separadamente; atualizar o conjunto antes de alterar critérios de aceite.
 
 ### Piloto operacional
@@ -433,6 +470,20 @@ Metas provisórias para o piloto; confirmar após estabelecer uma linha de base 
 5. **Expansão gradual:** aumentar cobertura após metas de integridade e segurança; manter rollback para a versão de prompt/modelo anterior.
 6. **Operação contínua:** revisão semanal de métricas, conversas rotuladas, custos, reclamações e cobertura por categoria/bairro.
 
+### Liberação para produção em massa
+
+Produção em massa é um gate operacional separado de “build passou”. Não liberar o número principal até todos os itens abaixo serem assinados:
+
+1. **Catálogo validado:** operação confirma a fonte oficial dos bairros, revisa a correspondência entre catálogo local e `public.bairros` e registra responsáveis/data de atualização. Nomes aproximados, inclusive “Jardim Europa”, não entram como oficiais sem confirmação na fonte adotada.
+2. **Teste de integração:** no mínimo 100 cenários multi-turno anonimizados, com OpenAI, Supabase e Evolution simulados ou em staging; zero indicação inventada, zero busca por bairro não confirmado e zero resposta antiga após novo pedido.
+3. **Teste de carga:** 50 contatos simultâneos e sequências concorrentes por mesmo contato, mantendo ordem; p95 menor que 8 s após o buffer, sem lead duplicado nem perda de webhook.
+4. **Piloto assistido:** pelo menos duas semanas ou 100 conversas completas, o que ocorrer por último, com operador acompanhando e handoff funcional. Todo falso match, repetição de pergunta e resposta fora de contexto é rotulado e corrigido.
+5. **Canary e rollback:** liberação por coorte/allowlist em 5%, 25%, 50% e 100%, com pausa imediata; restaurar prompt, modelo e regras anteriores em até 5 minutos.
+6. **Operação:** alertas de erro de IA/banco, latência, duplicidade e ausência anormal de resultados; runbook com responsável e escalonamento; teste periódico de backup/restore.
+7. **Governança:** aprovação de privacidade, termos, retenção de histórico, consentimento da lista de espera, textos de emergência e regras de divulgação dos telefones dos profissionais.
+
+**Bloqueadores absolutos de expansão:** profissional sem elegibilidade exibido; bairro incerto enviado como filtro sem confirmação; sessão anterior contaminando novo pedido; erro de Supabase anunciado como ausência de oferta; exposição de PII; emergência tratada como solicitação comercial; ou ausência de mecanismo de pausa/rollback.
+
 ## 17. Dependências e decisões pendentes
 
 | Decisão | Responsável sugerido | Bloqueia |
@@ -459,3 +510,5 @@ O recurso estará pronto para produção quando:
 - alertas, rollback e documentação de operação estiverem disponíveis.
 
 **Gate absoluto:** zero contatos inventados, zero exposição não autorizada de dados pessoais e zero promessas de preço, disponibilidade ou prazo sem fonte verificável.
+
+**Status de release:** os critérios de produção em massa acima ainda precisam de evidência de staging, catálogo oficial aprovado, teste de carga e piloto assistido. Aprovação deste PRD ou build local bem-sucedido, isoladamente, não autoriza publicação para todos os clientes.
