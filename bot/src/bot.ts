@@ -1,7 +1,10 @@
 import { config } from "./config"
-import { extrairIntencao, resolverUrgenciaLocal } from "./ai"
+import { extrairIntencao, resolverUrgenciaLocal, VERSOES_SISTEMA } from "./ai"
 import { categorias, resolverCategoria, resolverCategoriaPendente } from "./knowledge/categorias"
 import { resolverBairro } from "./knowledge/bairros-bauru"
+import { resolverLocalizacaoAvancada } from "./location-resolver"
+import { avaliarPoliticaDialogo, detectarFrustracao } from "./dialog-policy"
+import { validarSaida } from "./output-validator"
 import {
   deveAbrirNovoPedidoSemCategoria,
   deveAtualizarSomenteUrgencia,
@@ -13,7 +16,14 @@ import {
   refereBairroSugerido,
   recusouBairroSugerido,
 } from "./conversation-state"
-import { adicionarTurnoConversa, carregarSessao, salvarSessao, type Sessao } from "./session"
+import {
+  adicionarTurnoConversa,
+  carregarSessao,
+  salvarSessao,
+  criarNovoPedido,
+  fecharPedidoAtivoEArquivar,
+  type Sessao,
+} from "./session"
 import {
   buscarProfissionais,
   buscarProfissionaisFallback,
@@ -33,30 +43,25 @@ import {
   apagarDadosContato,
   registrarFeedbackCliente,
   buscarBairroNoSupabase,
+  type Profissional,
 } from "./supabase"
 import { enviarMensagem, enviarPresenca } from "./evolution"
 import { mensagens } from "./messages"
 import { enviarAlertaHandoff, isBotPausado } from "./telegram"
 import { extrairCoordenadas, coordenadasParaBairro } from "./geo"
-import type { ItemBuffer } from "./buffer"
+import type { LoteProcessamento } from "./buffer"
+import { validarEpochTurno } from "./buffer"
 import { hashContato, solicitouExclusaoDados } from "./privacidade"
 
-export interface LoteRecebido {
-  telefone: string
-  nome: string
-  itens: ItemBuffer[]
-}
+export async function processarLote(lote: LoteProcessamento): Promise<void> {
+  const { turn_id, batch_epoch, telefone, nome, itens } = lote
+  const inicioTurno = Date.now()
 
-export async function processarLote(lote: LoteRecebido): Promise<void> {
-  const { telefone, nome, itens } = lote
-
-  // Bot pausado globalmente (/pausar no Telegram)
+  // [1] Validação de pausa e sessão com humano ativo
   if (isBotPausado()) return
-
-  // Sessão com humano ativo — bot não responde
   if (await sessaoHumanoAtivo(telefone)) return
 
-  // Resolve localização compartilhada antes de montar o texto
+  // [2] Pré-processamento: geolocalização e áudio
   const itensResolvidos = itens.map(item => {
     if (item.tipo !== "texto") return item
     const coords = extrairCoordenadas(item.conteudo)
@@ -66,13 +71,12 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
     return { ...item, conteudo: `meu bairro é ${bairroGeo.bairro}` }
   })
 
-  // Verifica se cliente está fora de Bauru
   if (itensResolvidos.some(i => i.conteudo === "__fora_de_bauru__")) {
     const sessao = await carregarSessao(telefone)
     sessao.ultimaIntencao = "fora_bauru"
     await salvarSessao(telefone, sessao)
     await enviarPresenca(telefone, "paused")
-    await enviarMensagem(telefone, mensagens.foraDeBauru())
+    await enviarRespostaSegura(telefone, mensagens.foraDeBauru(), sessao, [], batch_epoch)
     return
   }
 
@@ -83,10 +87,11 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
 
   if (!textos.trim()) return
 
+  // [3] Direito do Titular / LGPD
   if (solicitouExclusaoDados(textos)) {
     try {
       await apagarDadosContato(telefone)
-      await enviarMensagem(telefone, "Pronto. Apaguei sua sessão e removi seus dados pessoais dos registros de leads.")
+      await enviarMensagem(telefone, "Pronto. Apaguei sua sessão e removi seus dados pessoais dos registros de leads conforme a LGPD.")
     } catch (err) {
       console.error("[bot] Falha ao apagar dados do contato:", err)
       await enviarMensagem(telefone, "Não consegui concluir a exclusão agora. Nossa equipe vai verificar o pedido.")
@@ -94,12 +99,10 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
     return
   }
 
-  console.log(`[bot] Lote de contato ${hashContato(telefone).slice(0, 12)}`)
-
-  const inicio = Date.now()
+  console.log(`[bot] Processando turno ${turn_id} (epoch ${batch_epoch}) para contato ${hashContato(telefone).slice(0, 12)}`)
   await enviarPresenca(telefone, "composing")
 
-  // Verifica se é profissional respondendo feedback
+  // [4] Verificações de Feedback (Profissional e Cliente)
   const profissional = await buscarProfissionalPorWhatsApp(telefone)
   const feedback = profissional ? interpretarFeedback(textos) : null
   if (profissional && feedback) {
@@ -117,7 +120,6 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
     return
   }
 
-  // Verifica se é cliente respondendo ao feedback 48h (👍 / 👎)
   const isPositivo = /👍|deu certo|ótimo|otimo|gostei|bom/i.test(textos.trim())
   const isNegativo = /👎|ruim|péssimo|pessimo|problema|não gostei|nao gostei/i.test(textos.trim())
   if (isPositivo || isNegativo) {
@@ -132,439 +134,329 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
     }
   }
 
-  // Carrega sessão persistida
+  // [5] Montagem de Contexto e Carregamento de Sessão
   const sessao = await carregarSessao(telefone)
   if (nome && !sessao.nome) sessao.nome = nome
+  sessao.batch_epoch = batch_epoch
 
-  // Extrai intenção via IA com RAG
-  const intencao = await extrairIntencao(textos, sessao)
-  adicionarTurnoConversa(sessao, "user", textos)
+  if (!sessao.pedido_ativo) {
+    sessao.pedido_ativo = criarNovoPedido()
+  }
+  const pedido = sessao.pedido_ativo
 
-  if (sessao.categoriasPendentes?.length) {
-    const selecionada = resolverCategoriaPendente(textos, sessao.categoriasPendentes)
-      ?? (intencao.categoria && sessao.categoriasPendentes.includes(intencao.categoria)
-        ? intencao.categoria
-        : null)
-    if (selecionada) {
-      intencao.categoria = selecionada
-      intencao.categoriasAlternativas = []
-    } else {
-      intencao.categoria = null
-      intencao.categoriasAlternativas = []
+  // Detecção de Frustração e Reparo
+  if (detectarFrustracao(textos)) {
+    pedido.frustrations_count = (pedido.frustrations_count || 0) + 1
+    pedido.repair_mode = true
+    if (pedido.frustrations_count >= 2) {
+      await _dispararHandoff(telefone, sessao, "Cliente expressou frustração repetida", textos)
     }
-    sessao.categoriasPendentes = []
   }
 
-  console.log("[bot] Intenção:", {
-    categoria: intencao.categoria,
-    categoriasAlternativas: intencao.categoriasAlternativas,
-    bairro: intencao.bairro,
-    intencao: intencao.intencao,
-    confianca: intencao.confianca,
-  })
+  // [6] Interpretação (LLM com Saída Estruturada + Fallback)
+  const inicioLLM = Date.now()
+  const intencao = await extrairIntencao(textos, sessao)
+  const duracaoLLM = Date.now() - inicioLLM
+  adicionarTurnoConversa(sessao, "user", textos)
+
+  // Resolução de Múltiplos Serviços / Fila
+  if (pedido.pending_question?.field === "service" && sessao.pedido_ativo?.service.candidates.length) {
+    const selecionada = resolverCategoriaPendente(textos, sessao.pedido_ativo.service.candidates)
+      ?? (intencao.service && sessao.pedido_ativo.service.candidates.includes(intencao.service)
+        ? intencao.service
+        : null)
+    if (selecionada) {
+      intencao.service = selecionada
+      intencao.service_candidates = []
+    }
+  }
 
   await enviarPresenca(telefone, "paused")
 
-  // ── Intenções especiais ──────────────────────────────────────────────────────
+  // [7] Resolução de Entidades (Localização Tolerante + Serviços)
+  const categoriaMencionada = resolverCategoria(textos)
+  const urgenciaMencionada = resolverUrgenciaLocal(textos)
+  let bairroMencionado = resolverBairro(textos)
+
+  const confirmouSugestao = confirmouBairroSugerido(textos)
+  const recusouSugestao = recusouBairroSugerido(textos)
+  const refereSugestao = Boolean(pedido.location.candidate && refereBairroSugerido(textos, pedido.location.candidate))
 
   const respondendoEsclarecimento = deveTratarComoRespostaPendente({
-    perguntaPendente: sessao.perguntaPendente,
-    categoriaMencionada: Boolean(resolverCategoria(textos)),
-    bairroMencionado: Boolean(resolverBairro(textos)),
-    bairroCandidato: Boolean(intencao.bairroCandidato),
-    urgenciaMencionada: resolverUrgenciaLocal(textos),
-    confirmouSugestao: confirmouBairroSugerido(textos),
-    recusouSugestao: recusouBairroSugerido(textos),
-    refereSugestao: Boolean(sessao.bairroSugerido && refereBairroSugerido(textos, sessao.bairroSugerido)),
+    perguntaPendente: pedido.pending_question?.field === "service" ? "categoria" : pedido.pending_question?.field ?? null,
+    categoriaMencionada: Boolean(categoriaMencionada),
+    bairroMencionado: Boolean(bairroMencionado),
+    bairroCandidato: Boolean(intencao.neighborhood_candidate),
+    urgenciaMencionada: urgenciaMencionada === "urgent" ? true : urgenciaMencionada === "flexible" ? false : null,
+    confirmouSugestao,
+    recusouSugestao,
+    refereSugestao,
     fragmentoDePedido: ehFragmentoDePedido(textos),
   })
 
-  if (intencao.intencao === "emergencia") {
-    await enviarResposta(telefone, mensagens.emergencia(), sessao)
-    return
-  }
-
-  if (intencao.intencao === "cadastro_profissional") {
-    await enviarResposta(telefone, mensagens.cadastroProfissional(), sessao)
-    return
-  }
-
-  if (intencao.intencao === "fora_escopo" && !respondendoEsclarecimento) {
-    // Verifica se cliente quer ser avisado sobre nova cidade
-    const querAviso = /sim|quero|avisa|avise|pode/i.test(textos)
-    if (sessao.ultimaIntencao === "fora_bauru" && querAviso) {
-      await registrarInteresseCidade(telefone, textos)
-      await enviarResposta(telefone, "Anotado! Te avisamos quando chegarmos na sua cidade. 😊", sessao)
-      return
-    }
-    await enviarResposta(telefone, mensagens.foraEscopo(), sessao)
-    return
-  }
-
-  // Reclamação → handoff
-  if (intencao.intencao === "reclamacao") {
-    const ocorrenciaId = await registrarOcorrencia(null, null, textos)
-    await _dispararHandoff(telefone, sessao, "Reclamação do cliente", textos)
-    await enviarResposta(telefone, mensagens.reclamacaoRegistrada(), sessao)
-    return
-  }
-
-  // Pedido de atendente humano → handoff
-  if (intencao.intencao === "falar_humano") {
-    await _dispararHandoff(telefone, sessao, "Cliente pediu atendente humano", textos)
-    await enviarResposta(telefone, mensagens.aguardeAtendente(), sessao)
-    return
-  }
-
-  const categoriaMencionada = resolverCategoria(textos)
-  let bairroMencionado = resolverBairro(textos)
-  const urgenciaMencionada = resolverUrgenciaLocal(textos)
-
-  if (
-    !bairroMencionado &&
-    sessao.perguntaPendente === "bairro" &&
-    sessao.bairroSugerido &&
-    refereBairroSugerido(textos, sessao.bairroSugerido) &&
-    !recusouBairroSugerido(textos)
-  ) {
+  // Se o cliente confirmou ou se referiu à sugestão pendente
+  if (pedido.pending_question?.field === "neighborhood" && pedido.location.candidate && (confirmouSugestao || refereSugestao) && !recusouSugestao) {
     bairroMencionado = {
-      bairro: sessao.bairroSugerido,
-      regiao: sessao.bairroSugeridoRegiao ?? "Outros",
+      bairro: pedido.location.candidate,
+      regiao: pedido.location.region ?? "Outros",
     }
-    intencao.bairro = bairroMencionado.bairro
-    intencao.regiao = bairroMencionado.regiao
-  }
+    intencao.neighborhood = bairroMencionado.bairro
+    intencao.region = bairroMencionado.regiao
+  } else if (pedido.pending_question?.field === "neighborhood" && pedido.location.candidate && recusouSugestao) {
+    const candidatoAnterior = pedido.location.candidate
+    pedido.location.candidate = null
+    pedido.location.neighborhood_name = null
+    const tentativas = (pedido.pending_question?.attempts ?? 0) + 1
+    pedido.pending_question = { field: "neighborhood", attempts: tentativas, state: "asking" }
 
-  if (
-    sessao.perguntaPendente === "bairro" &&
-    sessao.bairroSugerido &&
-    confirmouBairroSugerido(textos)
-  ) {
-    bairroMencionado = {
-      bairro: sessao.bairroSugerido,
-      regiao: sessao.bairroSugeridoRegiao ?? "Outros",
-    }
-    intencao.bairro = bairroMencionado.bairro
-    intencao.regiao = bairroMencionado.regiao
-  } else if (
-    sessao.perguntaPendente === "bairro" &&
-    sessao.bairroSugerido &&
-    recusouBairroSugerido(textos) &&
-    !intencao.bairroCandidato &&
-    !bairroMencionado
-  ) {
-    const candidatoAnterior = sessao.bairroCandidato ?? sessao.bairroSugerido
-    sessao.bairroSugerido = null
-    sessao.bairroSugeridoRegiao = null
-    sessao.bairroCandidato = null
-    sessao.tentativasLocalizacao = (sessao.tentativasLocalizacao ?? 0) + 1
-    if (sessao.tentativasLocalizacao >= 2) {
-      await _dispararHandoff(telefone, sessao, "Não foi possível confirmar o bairro", textos)
-      await enviarResposta(telefone, mensagens.bairroAindaNaoConfirmado(candidatoAnterior), sessao)
+    if (tentativas >= 2) {
+      await _dispararHandoff(telefone, sessao, "Não foi possível confirmar o bairro após recusa", textos)
+      await enviarRespostaSegura(telefone, mensagens.bairroAindaNaoConfirmado(candidatoAnterior), sessao, [], batch_epoch)
     } else {
-      await enviarResposta(telefone, mensagens.bairroNaoEncontrado(candidatoAnterior), sessao)
+      await enviarRespostaSegura(telefone, mensagens.bairroNaoEncontrado(candidatoAnterior), sessao, [], batch_epoch)
     }
     return
-  } else if (!bairroMencionado && intencao.bairroCandidato) {
-    const resolucao = await buscarBairroNoSupabase(intencao.bairroCandidato)
+  } else if (!bairroMencionado && intencao.neighborhood_candidate) {
+    // Validação tolerante com banco Supabase
+    const resolucao = await buscarBairroNoSupabase(intencao.neighborhood_candidate)
     if (resolucao.status === "indisponivel") {
-      await enviarResposta(telefone, mensagens.naoConseguiValidarBairro(), sessao)
+      await enviarRespostaSegura(telefone, mensagens.naoConseguiValidarBairro(), sessao, [], batch_epoch)
       return
     }
 
     if (resolucao.status === "encontrado") {
       bairroMencionado = { bairro: resolucao.bairro, regiao: resolucao.regiao ?? "Outros" }
-      intencao.bairro = bairroMencionado.bairro
-      intencao.regiao = bairroMencionado.regiao
-      sessao.bairroCandidato = null
-      sessao.bairroSugerido = null
-      sessao.bairroSugeridoRegiao = null
-      sessao.tentativasLocalizacao = 0
+      intencao.neighborhood = bairroMencionado.bairro
+      intencao.region = bairroMencionado.regiao
+      pedido.location.neighborhood_name = resolucao.bairro
+      pedido.location.region = resolucao.regiao
+      pedido.location.candidate = null
     } else if (resolucao.status === "aproximado") {
-      const mesmaSugestao = sessao.bairroSugerido === resolucao.bairro
-      if (mesmaSugestao) {
-        bairroMencionado = { bairro: resolucao.bairro, regiao: resolucao.regiao ?? "Outros" }
-        intencao.bairro = bairroMencionado.bairro
-        intencao.regiao = bairroMencionado.regiao
-        sessao.bairroCandidato = null
-        sessao.bairroSugerido = null
-        sessao.bairroSugeridoRegiao = null
-        sessao.tentativasLocalizacao = 0
+      const resAvancada = resolverLocalizacaoAvancada(intencao.neighborhood_candidate, undefined, true)
+
+      if (resAvancada.status === "single_suggestion_confirm" && resAvancada.bairroOficial) {
+        pedido.location.candidate = resAvancada.bairroOficial
+        pedido.location.region = resAvancada.regiao
+        pedido.pending_question = { field: "neighborhood", state: "suggesting", attempts: (pedido.pending_question?.attempts ?? 0) + 1 }
+        await enviarRespostaSegura(
+          telefone,
+          mensagens.confirmarBairro(intencao.neighborhood_candidate, resAvancada.bairroOficial),
+          sessao,
+          [],
+          batch_epoch
+        )
+        return
+      } else if (resAvancada.status === "multiple_options_disambiguate" && resAvancada.opcoes.length > 1) {
+        pedido.pending_question = { field: "neighborhood", state: "clarifying", attempts: (pedido.pending_question?.attempts ?? 0) + 1 }
+        await enviarRespostaSegura(
+          telefone,
+          mensagens.desambiguarBairros(resAvancada.opcoes),
+          sessao,
+          [],
+          batch_epoch
+        )
+        return
       } else {
-        sessao.bairroCandidato = intencao.bairroCandidato
-        sessao.bairroSugerido = resolucao.bairro
-        sessao.bairroSugeridoRegiao = resolucao.regiao
-        sessao.perguntaPendente = "bairro"
-        await enviarResposta(telefone, mensagens.confirmarBairro(intencao.bairroCandidato, resolucao.bairro), sessao)
+        const tentativas = (pedido.pending_question?.attempts ?? 0) + 1
+        pedido.pending_question = { field: "neighborhood", state: "asking", attempts: tentativas }
+        if (tentativas >= 2) {
+          await _dispararHandoff(telefone, sessao, "Não foi possível confirmar o bairro", textos)
+          await enviarRespostaSegura(telefone, mensagens.bairroAindaNaoConfirmado(intencao.neighborhood_candidate), sessao, [], batch_epoch)
+        } else {
+          await enviarRespostaSegura(telefone, mensagens.bairroNaoEncontrado(intencao.neighborhood_candidate), sessao, [], batch_epoch)
+        }
         return
       }
-    } else {
-      sessao.tentativasLocalizacao = (sessao.tentativasLocalizacao ?? 0) + 1
-      sessao.bairroCandidato = intencao.bairroCandidato
-      sessao.perguntaPendente = "bairro"
-      if (sessao.tentativasLocalizacao >= 2) {
-        await _dispararHandoff(telefone, sessao, "Não foi possível confirmar o bairro", textos)
-        await enviarResposta(telefone, mensagens.bairroAindaNaoConfirmado(intencao.bairroCandidato), sessao)
-      } else {
-        await enviarResposta(telefone, mensagens.bairroNaoEncontrado(intencao.bairroCandidato), sessao)
-      }
-      return
     }
   }
 
   if (bairroMencionado) {
-    sessao.bairroCandidato = null
-    sessao.bairroSugerido = null
-    sessao.bairroSugeridoRegiao = null
-    sessao.tentativasLocalizacao = 0
-    intencao.bairro = bairroMencionado.bairro
-    intencao.regiao = bairroMencionado.regiao
+    pedido.location.neighborhood_name = bairroMencionado.bairro
+    pedido.location.region = bairroMencionado.regiao
+    pedido.location.candidate = null
+    intencao.neighborhood = bairroMencionado.bairro
+    intencao.region = bairroMencionado.regiao
   }
 
+  // Fragmentos de novo pedido
   if (deveAbrirNovoPedidoSemCategoria({
-    buscaConcluida: Boolean(sessao.buscaConcluida),
+    buscaConcluida: pedido.status === "searched",
     categoriaMencionada: Boolean(categoriaMencionada),
-    intencao: intencao.intencao,
+    intencao: intencao.intent === "search_professional" ? "busca_profissional" : intencao.intent,
     mensagem: textos,
   })) {
-    sessao.categoria = null
-    sessao.bairro = null
-    sessao.regiao = null
-    sessao.urgente = null
-    sessao.profissionaisIndicados = []
-    sessao.servicosNaFila = []
-    sessao.servicoAtual = null
-    sessao.aguardandoConfirmacaoServico = false
-    sessao.buscaConcluida = false
-    sessao.resultadoUltimaBusca = null
-    sessao.perguntaPendente = "categoria"
-    sessao.bairroCandidato = null
-    sessao.bairroSugerido = null
-    sessao.bairroSugeridoRegiao = null
-    sessao.tentativasLocalizacao = 0
-    sessao.leadSemBairroRegistrado = false
+    fecharPedidoAtivoEArquivar(sessao)
+    sessao.pedido_ativo = criarNovoPedido()
+    sessao.pedido_ativo.pending_question = { field: "service", state: "asking", attempts: 1 }
+
     if (ehFragmentoDePedido(textos)) {
       await salvarSessao(telefone, sessao)
       return
     }
-    await enviarResposta(telefone, mensagens.pedirServico(), sessao)
+    await enviarRespostaSegura(telefone, mensagens.pedirServico(), sessao, [], batch_epoch)
     return
   }
 
-  if (sessao.perguntaPendente === "categoria" && ehFragmentoDePedido(textos)) {
+  if (pedido.pending_question?.field === "service" && ehFragmentoDePedido(textos)) {
     await salvarSessao(telefone, sessao)
     return
   }
 
-  if (urgenciaMencionada !== null && deveAtualizarSomenteUrgencia({
-    buscaConcluida: Boolean(sessao.buscaConcluida),
-    urgenciaMencionada,
+  // Atualização apenas de urgência pós-busca
+  if (urgenciaMencionada && deveAtualizarSomenteUrgencia({
+    buscaConcluida: pedido.status === "searched",
+    urgenciaMencionada: urgenciaMencionada === "urgent" ? true : urgenciaMencionada === "flexible" ? false : null,
     categoriaMencionada: Boolean(categoriaMencionada),
     bairroMencionado: Boolean(bairroMencionado),
-    intencao: intencao.intencao,
+    intencao: intencao.intent === "search_professional" ? "busca_profissional" : intencao.intent,
   })) {
-    sessao.urgente = urgenciaMencionada
-    const resposta = sessao.resultadoUltimaBusca === "sem_match"
-      ? mensagens.atualizarUrgenciaSemMatch(sessao.categoria ?? "serviço", sessao.bairro ?? "sua região", urgenciaMencionada)
-      : mensagens.atualizarUrgenciaComMatch(urgenciaMencionada)
-    await enviarResposta(telefone, resposta, sessao)
+    pedido.urgency = urgenciaMencionada
+    const resposta = pedido.search.last_state === "no_match"
+      ? mensagens.atualizarUrgenciaSemMatch(pedido.service.slug ?? "serviço", pedido.location.neighborhood_name ?? "sua região", urgenciaMencionada === "urgent")
+      : mensagens.atualizarUrgenciaComMatch(urgenciaMencionada === "urgent")
+    await enviarRespostaSegura(telefone, resposta, sessao, [], batch_epoch)
     return
   }
 
+  // Novo pedido com serviço identificado
   if (categoriaMencionada && deveIniciarNovoPedido({
-    buscaConcluida: Boolean(sessao.buscaConcluida),
-    aguardandoConfirmacaoServico: Boolean(sessao.aguardandoConfirmacaoServico),
+    buscaConcluida: pedido.status === "searched",
+    aguardandoConfirmacaoServico: false,
     categoriaMencionada: Boolean(categoriaMencionada),
-    intencao: intencao.intencao,
+    intencao: intencao.intent === "search_professional" ? "busca_profissional" : intencao.intent,
   })) {
     const manterMesmoLocal = /\b(mesmo bairro|mesmo local|mesmo endereco|mesma casa|mesmo lugar)\b/i.test(textos)
-    sessao.categoria = categoriaMencionada.slug
-    sessao.urgente = urgenciaMencionada
-    sessao.profissionaisIndicados = []
-    sessao.buscaConcluida = false
-    sessao.resultadoUltimaBusca = null
-    sessao.perguntaPendente = null
-    sessao.bairroCandidato = null
-    sessao.bairroSugerido = null
-    sessao.bairroSugeridoRegiao = null
-    sessao.tentativasLocalizacao = 0
-    sessao.leadSemBairroRegistrado = false
-    intencao.categoria = categoriaMencionada.slug
-    intencao.urgente = urgenciaMencionada
-    intencao.bairro = bairroMencionado?.bairro ?? (manterMesmoLocal ? sessao.bairro : null)
-    intencao.regiao = bairroMencionado?.regiao ?? (manterMesmoLocal ? sessao.regiao : null)
-    if (!intencao.bairro) {
-      sessao.bairro = null
-      sessao.regiao = null
-    }
-  } else if (intencao.categoria && intencao.categoria !== sessao.categoria) {
-    sessao.urgente = urgenciaMencionada
-    sessao.profissionaisIndicados = []
-  }
-
-  if (intencao.urgente !== null) sessao.urgente = intencao.urgente
-
-  const servicosNaFila = sessao.servicosNaFila ?? []
-  if (sessao.aguardandoConfirmacaoServico && servicosNaFila.length > 0) {
-    const selecionada = resolverCategoriaPendente(textos, servicosNaFila)
-    const confirmou = /^\s*(sim|pode|isso|ok|claro|confirmo|vamos)\b/i.test(textos)
-    const recusou = /^\s*(n[aã]o|nao)\b/i.test(textos)
-
-    if (selecionada || confirmou) {
-      const servicoAtual = selecionada ?? servicosNaFila[0]
-      sessao.servicosNaFila = servicosNaFila.filter(slug => slug !== servicoAtual)
-      sessao.servicoAtual = servicoAtual
-      sessao.aguardandoConfirmacaoServico = false
-      sessao.categoria = servicoAtual
-      intencao.categoria = servicoAtual
-      intencao.categoriasSolicitadas = []
-      intencao.categoriasAlternativas = []
-    } else if (recusou) {
-      sessao.servicosNaFila = []
-      sessao.servicoAtual = null
-      sessao.aguardandoConfirmacaoServico = false
-      sessao.categoria = null
-      await salvarSessao(telefone, sessao)
-      await enviarResposta(telefone, "Tudo bem. Deixei os outros serviços de lado por enquanto.", sessao)
-      return
-    } else if (intencao.categoria && !servicosNaFila.includes(intencao.categoria)) {
-      sessao.servicosNaFila = []
-      sessao.servicoAtual = null
-      sessao.aguardandoConfirmacaoServico = false
-    } else {
-      const opcoes = servicosNaFila.map(slug =>
-        categorias.find(categoria => categoria.slug === slug)?.label ?? slug
-      )
-      await enviarResposta(telefone, mensagens.confirmarOrdem(opcoes), sessao)
-      return
-    }
-  }
-
-  if (intencao.categoriasSolicitadas.length > 1) {
-    sessao.servicosNaFila = intencao.categoriasSolicitadas
-    sessao.servicoAtual = null
-    sessao.aguardandoConfirmacaoServico = true
-    sessao.categoria = null
-    sessao.bairro = intencao.bairro ?? sessao.bairro
-    sessao.regiao = intencao.regiao ?? sessao.regiao
-    await salvarSessao(telefone, sessao)
-    const opcoes = sessao.servicosNaFila.map(slug =>
-      categorias.find(categoria => categoria.slug === slug)?.label ?? slug
-    )
-    await enviarResposta(telefone, mensagens.confirmarOrdem(opcoes), sessao)
-    return
-  }
-
-  if (intencao.intencao === "saudacao" && !intencao.categoria) {
-    const respostaHumanizada = intencao.mensagem?.trim() || mensagens.naoEntendeu()
-    await enviarResposta(telefone, respostaHumanizada, sessao)
-    return
-  }
-
-  if (intencao.categoriasAlternativas.length > 1) {
-    sessao.categoria = null
-    sessao.categoriasPendentes = intencao.categoriasAlternativas
-    sessao.perguntaPendente = "categoria"
-    await salvarSessao(telefone, sessao)
-    const opcoes = intencao.categoriasAlternativas.map(slug =>
-      categorias.find(categoria => categoria.slug === slug)?.label ?? slug
-    )
-    await enviarResposta(telefone, mensagens.categoriaAmbigua(opcoes), sessao)
-    return
-  }
-
-  // ── Busca de profissionais ───────────────────────────────────────────────────
-
-  const categoria = intencao.categoria ?? sessao.categoria
-  const bairro = intencao.bairro ?? sessao.bairro
-  const regiao = intencao.regiao ?? sessao.regiao
-
-  if (!categoria) {
-    sessao.perguntaPendente = "categoria"
-    sessao.tentativasEsclarecimento++
-    if (sessao.tentativasEsclarecimento >= 3) {
-      await _dispararHandoff(telefone, sessao, "3 tentativas sem identificar serviço", textos)
-    }
-    await salvarSessao(telefone, sessao)
-    const msgHumanizada = intencao.mensagem?.trim() || mensagens.naoEntendeu()
-    await enviarResposta(telefone, msgHumanizada, sessao)
-    return
-  }
-
-  if (!bairro) {
-    sessao.categoria = categoria
-    sessao.perguntaPendente = "bairro"
-    sessao.tentativasEsclarecimento++
-    await salvarSessao(telefone, sessao)
-    if (!sessao.leadSemBairroRegistrado) {
-      await salvarLead({
-        nomeCliente: nome,
-        whatsappCliente: telefone,
-        categoria,
-        bairro: "Não informado",
-        profissionalId: null,
-        status: "novo",
-        mensagemOriginal: textos,
-      })
-      sessao.leadSemBairroRegistrado = true
-    }
-    const respostaModelo = intencao.mensagem?.trim() ?? ""
-    const msgPedirBairro = /\b(bairro|regi[aã]o)\b/i.test(respostaModelo)
-      ? respostaModelo
-      : mensagens.pedirBairro(categorias.find(item => item.slug === categoria)?.label ?? categoria)
-    await enviarResposta(telefone, msgPedirBairro, sessao)
-    return
-  }
-
-  if (deveEvitarBuscaRepetida({
-    buscaConcluida: Boolean(sessao.buscaConcluida),
-    aguardandoConfirmacaoServico: Boolean(sessao.aguardandoConfirmacaoServico),
-    categoriaMencionada: Boolean(categoriaMencionada),
-    bairroMencionado: Boolean(bairroMencionado),
-    urgenciaMencionada,
-    intencao: intencao.intencao,
-  })) {
-    await enviarResposta(
-      telefone,
-      mensagens.continuarPedido(categoria, bairro),
-      sessao
-    )
-    return
-  }
-
-  // Tem categoria + bairro
-  sessao.categoria = categoria
-  sessao.bairro = bairro
-  sessao.regiao = regiao
-  sessao.perguntaPendente = null
-  sessao.buscaConcluida = false
-  sessao.resultadoUltimaBusca = null
-  sessao.tentativasEsclarecimento = 0
-
-  const ignoreIds = sessao.profissionaisIndicados
-
-  // Prioridade 1 e 2: buscarProfissionais já tenta bairro → região
-  const resultadoProfissionais = await buscarProfissionais(categoria, bairro, ignoreIds, 4)
-  if (resultadoProfissionais.status === "indisponivel") {
-    sessao.resultadoUltimaBusca = "indisponivel"
-    await enviarResposta(telefone, mensagens.buscaIndisponivel(), sessao)
-    await registrarMetricaMensagem({
-      contatoHash: hashContato(telefone),
-      categoria,
-      bairro,
-      confianca: intencao.confianca,
-      tempoTotalMs: Date.now() - inicio,
-      resultado: "erro",
+    fecharPedidoAtivoEArquivar(sessao)
+    sessao.pedido_ativo = criarNovoPedido({
+      serviceSlug: categoriaMencionada.slug,
+      neighborhoodName: bairroMencionado?.bairro ?? (manterMesmoLocal ? pedido.location.neighborhood_name : null),
+      region: bairroMencionado?.regiao ?? (manterMesmoLocal ? pedido.location.region : null),
+      urgency: urgenciaMencionada ?? "unknown",
     })
+  }
+
+  // [8] Avaliação da Política de Diálogo Determinística
+  const decisao = avaliarPoliticaDialogo({
+    pedido: sessao.pedido_ativo,
+    extracao: intencao,
+    mensagemBruta: textos,
+    confirmouSugestaoLocal: confirmouSugestao,
+    recusouSugestaoLocal: recusouSugestao,
+    refereSugestaoLocal: refereSugestao,
+    respondendoEsclarecimento,
+  })
+
+  console.log(`[bot] Ação da política: ${decisao.acao} (Regra #${decisao.regraId}: ${decisao.motivo})`)
+
+  switch (decisao.acao) {
+    case "EMERGENCY_PROTOCOL": {
+      await enviarRespostaSegura(telefone, mensagens.emergencia(), sessao, [], batch_epoch)
+      return
+    }
+
+    case "HANDOFF_HUMAN": {
+      if (intencao.intent === "complaint") {
+        await registrarOcorrencia(null, null, textos)
+        await _dispararHandoff(telefone, sessao, "Reclamação do cliente", textos)
+        await enviarRespostaSegura(telefone, mensagens.reclamacaoRegistrada(), sessao, [], batch_epoch)
+      } else {
+        await _dispararHandoff(telefone, sessao, "Cliente pediu atendente humano", textos)
+        await enviarRespostaSegura(telefone, mensagens.aguardeAtendente(), sessao, [], batch_epoch)
+      }
+      return
+    }
+
+    case "INSTITUTIONAL_REPLY": {
+      const tipo = decisao.dados?.tipo
+      let resposta = mensagens.comoFunciona()
+      if (tipo === "ask_price") resposta = mensagens.perguntaPreco()
+      else if (tipo === "ask_best") resposta = mensagens.qualOMelhor()
+      else if (tipo === "professional_signup") resposta = mensagens.cadastroProfissional()
+      await enviarRespostaSegura(telefone, resposta, sessao, [], batch_epoch)
+      return
+    }
+
+    case "OUT_OF_SCOPE": {
+      await enviarRespostaSegura(telefone, mensagens.foraEscopo(), sessao, [], batch_epoch)
+      return
+    }
+
+    case "GREETING": {
+      const resposta = intencao.reply?.trim() || mensagens.naoEntendeu()
+      await enviarRespostaSegura(telefone, resposta, sessao, [], batch_epoch)
+      return
+    }
+
+    case "DISAMBIGUATE_SERVICE": {
+      const candidatos = decisao.dados?.candidatos ?? []
+      sessao.pedido_ativo!.service.candidates = candidatos
+      sessao.pedido_ativo!.pending_question = { field: "service", state: "clarifying", attempts: 1 }
+      const labels = candidatos.map((slug: string) => categorias.find(c => c.slug === slug)?.label ?? slug)
+      await enviarRespostaSegura(telefone, mensagens.categoriaAmbigua(labels), sessao, [], batch_epoch)
+      return
+    }
+
+    case "ASK_NEIGHBORHOOD": {
+      const slug = decisao.dados?.servico
+      sessao.pedido_ativo!.service.slug = slug
+      sessao.pedido_ativo!.pending_question = { field: "neighborhood", state: "asking", attempts: 1 }
+      const label = categorias.find(c => c.slug === slug)?.label ?? slug
+      const msgPedirBairro = mensagens.pedirBairro(label)
+      await enviarRespostaSegura(telefone, msgPedirBairro, sessao, [], batch_epoch)
+      return
+    }
+
+    case "ASK_SERVICE":
+    case "ASK_SERVICE_DESCRIPTION": {
+      sessao.pedido_ativo!.pending_question = { field: "service", state: "asking", attempts: 1 }
+      const msg = intencao.reply?.trim() || mensagens.pedirServico()
+      await enviarRespostaSegura(telefone, msg, sessao, [], batch_epoch)
+      return
+    }
+
+    case "OFFER_ALTERNATIVES_OR_HANDOFF": {
+      await _dispararHandoff(telefone, sessao, "Limite de tentativas de esclarecimento atingido", textos)
+      await enviarRespostaSegura(telefone, mensagens.aguardeAtendente(), sessao, [], batch_epoch)
+      return
+    }
+  }
+
+  // [9] Execução de Ferramentas: Busca de Profissionais
+  const categoria = intencao.service ?? sessao.pedido_ativo?.service.slug
+  const bairro = intencao.neighborhood ?? sessao.pedido_ativo?.location.neighborhood_name
+
+  if (!categoria || !bairro) {
+    const msg = mensagens.naoEntendeu()
+    await enviarRespostaSegura(telefone, msg, sessao, [], batch_epoch)
     return
   }
+
+  sessao.pedido_ativo!.service.slug = categoria
+  sessao.pedido_ativo!.location.neighborhood_name = bairro
+  sessao.pedido_ativo!.pending_question = null
+  sessao.pedido_ativo!.status = "ready_to_search"
+
+  const ignoreIds = sessao.pedido_ativo!.presented_professional_ids
+  const inicioBusca = Date.now()
+  const resultadoProfissionais = await buscarProfissionais(categoria, bairro, ignoreIds, 4)
+  const duracaoBusca = Date.now() - inicioBusca
+
+  if (resultadoProfissionais.status === "indisponivel") {
+    sessao.pedido_ativo!.search.last_state = "unavailable"
+    await enviarRespostaSegura(telefone, mensagens.buscaIndisponivel(), sessao, [], batch_epoch)
+    await registrarMetricasTurno(telefone, categoria, bairro, intencao.confidence.intent, inicioTurno, "erro", duracaoLLM, duracaoBusca)
+    return
+  }
+
   const profissionais = resultadoProfissionais.profissionais
+  const incluirNotaInstitucional = !sessao.notaInstitucionalExibida
 
   if (profissionais.length > 0) {
     for (const prof of profissionais) {
       const bairrosAtendidos = await carregarBairrosDoProfissional(prof.id)
       if (bairrosAtendidos.length > 0) prof.bairros = bairrosAtendidos
-      sessao.profissionaisIndicados.push(prof.id)
+      sessao.pedido_ativo!.presented_professional_ids.push(prof.id)
+
       const leadId = await salvarLead({
         nomeCliente: nome,
         whatsappCliente: telefone,
@@ -581,62 +473,58 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
       }
     }
 
-    const proximoServico = prepararProximoServico(sessao)
-    sessao.resultadoUltimaBusca = "match"
-    sessao.buscaConcluida = !sessao.aguardandoConfirmacaoServico
-    const envio = await enviarResposta(
-      telefone,
-      mensagens.profissionalEncontrado(
-        profissionais,
-        categoria,
-        bairro,
-        proximoServico,
-        sessao.urgente,
-        resultadoProfissionais.prioridadeMatch === 2 ? 2 : 1
-      ),
-      sessao
+    sessao.pedido_ativo!.search.last_state = "matched"
+    sessao.pedido_ativo!.status = "searched"
+    sessao.pedido_ativo!.search.prioridade_match = resultadoProfissionais.prioridadeMatch
+
+    const textoResposta = mensagens.profissionalEncontrado(
+      profissionais,
+      categoria,
+      bairro,
+      null,
+      sessao.pedido_ativo!.urgency === "urgent" ? true : sessao.pedido_ativo!.urgency === "flexible" ? false : null,
+      resultadoProfissionais.prioridadeMatch === 2 ? 2 : 1,
+      incluirNotaInstitucional
     )
 
-    for (const prof of profissionais) {
-      if (prof.leadId && envio.messageId) await atualizarLeadMensagemId(prof.leadId, envio.messageId)
-      await enviarMensagem(prof.whatsapp, mensagens.feedbackProfissional(categoria, bairro))
+    const envio = await enviarRespostaSegura(telefone, textoResposta, sessao, profissionais, batch_epoch)
+    if (envio) {
+      sessao.notaInstitucionalExibida = true
+      for (const prof of profissionais) {
+        if (prof.leadId && envio.messageId) await atualizarLeadMensagemId(prof.leadId, envio.messageId)
+        await enviarMensagem(prof.whatsapp, mensagens.feedbackProfissional(categoria, bairro))
+      }
     }
 
-    await salvarSessao(telefone, sessao)
-    await registrarMetricaMensagem({
-      contatoHash: hashContato(telefone),
+    await registrarMetricasTurno(
+      telefone,
       categoria,
       bairro,
-      confianca: intencao.confianca,
-      tempoTotalMs: Date.now() - inicio,
-      resultado: resultadoProfissionais.prioridadeMatch === 2 ? "match_regiao" : "match_bairro",
-    })
-    console.log(`[bot] Leads → ${profissionais.map(p => p.nome).join(", ")}`)
+      intencao.confidence.intent,
+      inicioTurno,
+      resultadoProfissionais.prioridadeMatch === 2 ? "match_regiao" : "match_bairro",
+      duracaoLLM,
+      duracaoBusca
+    )
     return
   }
 
-  // Prioridade 3: fallback cidade toda
+  // Fallback cidade toda
   const resultadoFallback = await buscarProfissionaisFallback(categoria, ignoreIds, 4)
   if (resultadoFallback.status === "indisponivel") {
-    sessao.resultadoUltimaBusca = "indisponivel"
-    await enviarResposta(telefone, mensagens.buscaIndisponivel(), sessao)
-    await registrarMetricaMensagem({
-      contatoHash: hashContato(telefone),
-      categoria,
-      bairro,
-      confianca: intencao.confianca,
-      tempoTotalMs: Date.now() - inicio,
-      resultado: "erro",
-    })
+    sessao.pedido_ativo!.search.last_state = "unavailable"
+    await enviarRespostaSegura(telefone, mensagens.buscaIndisponivel(), sessao, [], batch_epoch)
+    await registrarMetricasTurno(telefone, categoria, bairro, intencao.confidence.intent, inicioTurno, "erro", duracaoLLM, duracaoBusca)
     return
   }
-  const fallbacks = resultadoFallback.profissionais
 
+  const fallbacks = resultadoFallback.profissionais
   if (fallbacks.length > 0) {
     for (const prof of fallbacks) {
       const bairrosAtendidos = await carregarBairrosDoProfissional(prof.id)
       if (bairrosAtendidos.length > 0) prof.bairros = bairrosAtendidos
-      sessao.profissionaisIndicados.push(prof.id)
+      sessao.pedido_ativo!.presented_professional_ids.push(prof.id)
+
       const leadId = await salvarLead({
         nomeCliente: nome,
         whatsappCliente: telefone,
@@ -653,34 +541,38 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
       }
     }
 
-    const proximoServico = prepararProximoServico(sessao)
-    sessao.resultadoUltimaBusca = "fallback"
-    sessao.buscaConcluida = !sessao.aguardandoConfirmacaoServico
-    const envio = await enviarResposta(telefone, mensagens.profissionalFallback(fallbacks, categoria, bairro, proximoServico, sessao.urgente), sessao)
+    sessao.pedido_ativo!.search.last_state = "fallback"
+    sessao.pedido_ativo!.status = "searched"
+    sessao.pedido_ativo!.search.prioridade_match = 3
 
-    for (const prof of fallbacks) {
-      if (prof.leadId && envio.messageId) await atualizarLeadMensagemId(prof.leadId, envio.messageId)
-      await enviarMensagem(prof.whatsapp, mensagens.feedbackProfissional(categoria, bairro))
-    }
-
-    await salvarSessao(telefone, sessao)
-    await registrarMetricaMensagem({
-      contatoHash: hashContato(telefone),
+    const textoFallback = mensagens.profissionalFallback(
+      fallbacks,
       categoria,
       bairro,
-      confianca: intencao.confianca,
-      tempoTotalMs: Date.now() - inicio,
-      resultado: "fallback_cidade",
-    })
-    console.log(`[bot] Leads fallback → ${fallbacks.map(f => f.nome).join(", ")}`)
+      null,
+      sessao.pedido_ativo!.urgency === "urgent" ? true : sessao.pedido_ativo!.urgency === "flexible" ? false : null,
+      incluirNotaInstitucional
+    )
+
+    const envio = await enviarRespostaSegura(telefone, textoFallback, sessao, fallbacks, batch_epoch)
+    if (envio) {
+      sessao.notaInstitucionalExibida = true
+      for (const prof of fallbacks) {
+        if (prof.leadId && envio.messageId) await atualizarLeadMensagemId(prof.leadId, envio.messageId)
+        await enviarMensagem(prof.whatsapp, mensagens.feedbackProfissional(categoria, bairro))
+      }
+    }
+
+    await registrarMetricasTurno(telefone, categoria, bairro, intencao.confidence.intent, inicioTurno, "fallback_cidade", duracaoLLM, duracaoBusca)
     return
   }
 
   // Sem match
-  const proximoServico = prepararProximoServico(sessao)
-  sessao.resultadoUltimaBusca = "sem_match"
-  sessao.buscaConcluida = !sessao.aguardandoConfirmacaoServico
-  await enviarResposta(telefone, mensagens.semMatch(categoria, bairro, undefined, proximoServico), sessao)
+  sessao.pedido_ativo!.search.last_state = "no_match"
+  sessao.pedido_ativo!.status = "searched"
+  const textoSemMatch = mensagens.semMatch(categoria, bairro)
+  await enviarRespostaSegura(telefone, textoSemMatch, sessao, [], batch_epoch)
+
   await salvarLead({
     nomeCliente: nome,
     whatsappCliente: telefone,
@@ -690,44 +582,68 @@ export async function processarLote(lote: LoteRecebido): Promise<void> {
     status: "sem_resposta",
     mensagemOriginal: textos,
   })
-  await salvarSessao(telefone, sessao)
-  await registrarMetricaMensagem({
-    contatoHash: hashContato(telefone),
-    categoria,
-    bairro,
-    confianca: intencao.confianca,
-    tempoTotalMs: Date.now() - inicio,
-    resultado: "sem_match",
-  })
-  console.log(`[bot] Sem match para ${categoria} em ${bairro}`)
+
+  await registrarMetricasTurno(telefone, categoria, bairro, intencao.confidence.intent, inicioTurno, "sem_match", duracaoLLM, duracaoBusca)
 }
 
-async function enviarResposta(
+// [10] Envio com Validação de Saída (Guardrails) e Supersessão (Compare-and-Send)
+async function enviarRespostaSegura(
   telefone: string,
   texto: string,
-  sessao: Sessao
+  sessao: Sessao,
+  profissionaisRetornados: Profissional[],
+  epochTurno: number
 ) {
-  const envio = await enviarMensagem(telefone, texto)
-  adicionarTurnoConversa(sessao, "assistant", texto)
+  // Supersessão (RF-13, Invariante I-03): descarta se nova mensagem chegou durante processamento
+  if (!validarEpochTurno(telefone, epochTurno)) {
+    console.warn(`[bot] Supersessão ativada: turno com epoch ${epochTurno} superado por mensagem mais recente. Descartando resposta obsoleta.`)
+    return null
+  }
+
+  const ultimoTextoEnviado = sessao.turnosRecentes.filter(t => t.role === "assistant").slice(-1)[0]?.content ?? null
+
+  const validacao = validarSaida({
+    textoGerado: texto,
+    profissionaisRetornados,
+    ultimoTextoEnviado,
+  })
+
+  let textoFinal = texto
+  if (!validacao.valido) {
+    console.warn(`[bot] Guardrail acionado! Motivos: ${validacao.motivos.join("; ")}`)
+    // Se a validação reprovou por anti-repetição ou contato inventado, higieniza com template seguro
+    if (validacao.motivos.some(m => m.includes("I-04"))) {
+      textoFinal = `Continuando seu atendimento: se precisar de outros profissionais ou de mais opções para ${sessao.pedido_ativo?.service.slug ?? "este serviço"}, é só me avisar!`
+    }
+  }
+
+  const envio = await enviarMensagem(telefone, textoFinal)
+  adicionarTurnoConversa(sessao, "assistant", textoFinal)
   await salvarSessao(telefone, sessao)
   return envio
 }
 
-function prepararProximoServico(sessao: Sessao): string | null {
-  const proximoSlug = sessao.servicosNaFila?.[0]
-  sessao.servicoAtual = null
-  sessao.aguardandoConfirmacaoServico = Boolean(proximoSlug)
-
-  if (!proximoSlug) {
-    sessao.servicosNaFila = []
-    return null
-  }
-
-  sessao.categoria = null
-  return categorias.find(categoria => categoria.slug === proximoSlug)?.label ?? proximoSlug
+async function registrarMetricasTurno(
+  telefone: string,
+  categoria: string | null,
+  bairro: string | null,
+  confianca: number,
+  inicioTurno: number,
+  resultado: "match_bairro" | "match_regiao" | "fallback_cidade" | "sem_match" | "erro",
+  duracaoLLMMs?: number,
+  duracaoBuscaMs?: number
+): Promise<void> {
+  const tempoTotalMs = Date.now() - inicioTurno
+  await registrarMetricaMensagem({
+    contatoHash: hashContato(telefone),
+    categoria,
+    bairro,
+    confianca,
+    tempoTotalMs,
+    resultado,
+  })
+  console.log(`[telemetria] Turno concluído em ${tempoTotalMs}ms (LLM: ${duracaoLLMMs ?? 0}ms, Busca: ${duracaoBuscaMs ?? 0}ms) -> ${resultado}`)
 }
-
-// ─── Handoff ──────────────────────────────────────────────────────────────────
 
 async function _dispararHandoff(
   telefone: string,
@@ -736,12 +652,16 @@ async function _dispararHandoff(
   ultimasMensagens: string
 ): Promise<void> {
   await marcarSessaoHumanoAtivo(telefone, true)
+  if (sessao.pedido_ativo) {
+    sessao.pedido_ativo.status = "handoff"
+  }
+  await salvarSessao(telefone, sessao)
   await enviarAlertaHandoff({
     telefone,
     motivo,
-    categoria: sessao.categoria,
-    bairro: sessao.bairro,
-    resumo: `Categoria: ${sessao.categoria ?? "?"}, Bairro: ${sessao.bairro ?? "?"}`,
+    categoria: sessao.pedido_ativo?.service.slug ?? null,
+    bairro: sessao.pedido_ativo?.location.neighborhood_name ?? null,
+    resumo: `Categoria: ${sessao.pedido_ativo?.service.slug ?? "?"}, Bairro: ${sessao.pedido_ativo?.location.neighborhood_name ?? "?"}`,
     ultimasMensagens,
   })
 }

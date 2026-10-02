@@ -1,60 +1,132 @@
+import crypto from "crypto"
 import { createClient } from "@supabase/supabase-js"
 import { config } from "./config"
 import { hashContato, hashContatoLegado } from "./privacidade"
+import {
+  Sessao,
+  PedidoAtivo,
+  PedidoHistorico,
+  TurnoConversa,
+  UrgenciaNivel,
+} from "./types"
+
+export type { Sessao, PedidoAtivo, TurnoConversa }
 
 const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey)
 
-const SESSION_TTL_MS = Number(process.env.SESSION_TIMEOUT_MS ?? 1800000) // 30 min
+const SESSION_TTL_MS = Number(process.env.SESSION_TIMEOUT_MS ?? 86400000) // 24 horas por padrão (PRD v3.0 RF-03)
 
-export interface Sessao {
-  versao?: 1
-  categoria: string | null
-  bairro: string | null
-  bairroCandidato?: string | null
-  bairroSugerido?: string | null
-  bairroSugeridoRegiao?: string | null
-  tentativasLocalizacao?: number
-  leadSemBairroRegistrado?: boolean
-  regiao: string | null
-  urgente?: boolean | null
-  perguntaPendente?: "categoria" | "bairro" | "urgencia" | null
-  turnosRecentes?: TurnoConversa[]
-  buscaConcluida?: boolean
-  resultadoUltimaBusca?: "match" | "fallback" | "sem_match" | "indisponivel" | null
-  nome: string | null
-  profissionaisIndicados: string[]
-  tentativasEsclarecimento: number
-  ultimaIntencao: string | null
-  categoriasPendentes?: string[]
-  servicosNaFila?: string[]
-  servicoAtual?: string | null
-  aguardandoConfirmacaoServico?: boolean
-  humano_ativo?: boolean
-  primeiraInteracao?: boolean
+export function criarNovoPedido(params?: {
+  serviceSlug?: string | null
+  neighborhoodName?: string | null
+  region?: string | null
+  urgency?: UrgenciaNivel
+}): PedidoAtivo {
+  const agora = new Date().toISOString()
+  return {
+    request_id: crypto.randomUUID(),
+    status: "collecting",
+    service: {
+      slug: params?.serviceSlug ?? null,
+      candidates: [],
+      confidence: params?.serviceSlug ? 0.95 : 0,
+      source: params?.serviceSlug ? "direct" : undefined,
+    },
+    details: [],
+    location: {
+      neighborhood_name: params?.neighborhoodName ?? null,
+      region: params?.region ?? null,
+      city: "Bauru",
+      confidence: params?.neighborhoodName ? 0.95 : 0,
+      source: params?.neighborhoodName ? "text" : undefined,
+    },
+    urgency: params?.urgency ?? "unknown",
+    pending_question: null,
+    repair_mode: false,
+    frustrations_count: 0,
+    last_outbound_fingerprints: [],
+    presented_professional_ids: [],
+    search: {
+      last_state: null,
+      prioridade_match: null,
+    },
+    created_at: agora,
+    updated_at: agora,
+  }
 }
 
-export interface TurnoConversa {
-  role: "user" | "assistant"
-  content: string
+export function sessaoVazia(): Sessao {
+  return {
+    versao: 3,
+    nome: null,
+    pedido_ativo: criarNovoPedido(),
+    pedidos_anteriores: [],
+    turnosRecentes: [],
+    notaInstitucionalExibida: false,
+    batch_epoch: 1,
+    humano_ativo: false,
+    primeiraInteracao: true,
+    ultimaIntencao: null,
+  }
 }
 
 export function normalizarSessao(estado: unknown): Sessao {
   const salvo = estado && typeof estado === "object" && !Array.isArray(estado)
-    ? estado as Partial<Sessao>
+    ? (estado as Record<string, any>)
     : {}
 
-  if (salvo.versao !== 1) {
+  // Se já for versão 3, faz parse seguro
+  if (salvo.versao === 3 && salvo.pedido_ativo) {
     return {
-      ...sessaoVazia(),
+      versao: 3,
       nome: typeof salvo.nome === "string" ? salvo.nome : null,
+      pedido_ativo: {
+        ...criarNovoPedido(),
+        ...salvo.pedido_ativo,
+      },
+      pedidos_anteriores: Array.isArray(salvo.pedidos_anteriores) ? salvo.pedidos_anteriores : [],
+      turnosRecentes: Array.isArray(salvo.turnosRecentes) ? salvo.turnosRecentes : [],
+      notaInstitucionalExibida: Boolean(salvo.notaInstitucionalExibida),
+      batch_epoch: typeof salvo.batch_epoch === "number" ? salvo.batch_epoch : 1,
+      humano_ativo: Boolean(salvo.humano_ativo),
+      primeiraInteracao: salvo.primeiraInteracao !== undefined ? Boolean(salvo.primeiraInteracao) : false,
+      ultimaIntencao: typeof salvo.ultimaIntencao === "string" ? salvo.ultimaIntencao : null,
     }
   }
 
+  // Migração transparente de sessões legadas (versões 1 e 2 planas)
+  const novoPedido = criarNovoPedido()
+  if (typeof salvo.categoria === "string") novoPedido.service.slug = salvo.categoria
+  if (typeof salvo.bairro === "string") novoPedido.location.neighborhood_name = salvo.bairro
+  if (typeof salvo.regiao === "string") novoPedido.location.region = salvo.regiao
+  if (typeof salvo.bairroCandidato === "string") novoPedido.location.candidate = salvo.bairroCandidato
+  if (salvo.urgente === true) novoPedido.urgency = "urgent"
+  else if (salvo.urgente === false) novoPedido.urgency = "flexible"
+
+  if (Array.isArray(salvo.profissionaisIndicados)) {
+    novoPedido.presented_professional_ids = salvo.profissionaisIndicados
+  }
+  if (salvo.perguntaPendente) {
+    novoPedido.pending_question = {
+      field: salvo.perguntaPendente === "categoria" ? "service" : salvo.perguntaPendente,
+      attempts: typeof salvo.tentativasEsclarecimento === "number" ? salvo.tentativasEsclarecimento : 1,
+    }
+  }
+  if (salvo.buscaConcluida) {
+    novoPedido.status = "searched"
+  }
+
   return {
-    ...sessaoVazia(),
-    ...salvo,
+    versao: 3,
+    nome: typeof salvo.nome === "string" ? salvo.nome : null,
+    pedido_ativo: novoPedido,
+    pedidos_anteriores: [],
     turnosRecentes: Array.isArray(salvo.turnosRecentes) ? salvo.turnosRecentes : [],
-    profissionaisIndicados: Array.isArray(salvo.profissionaisIndicados) ? salvo.profissionaisIndicados : [],
+    notaInstitucionalExibida: false,
+    batch_epoch: 1,
+    humano_ativo: Boolean(salvo.humano_ativo),
+    primeiraInteracao: Boolean(salvo.primeiraInteracao),
+    ultimaIntencao: typeof salvo.ultimaIntencao === "string" ? salvo.ultimaIntencao : null,
   }
 }
 
@@ -71,7 +143,27 @@ export function adicionarTurnoConversa(
     .slice(0, 1200)
 
   if (!textoSeguro) return
-  sessao.turnosRecentes = [...(sessao.turnosRecentes ?? []), { role, content: textoSeguro }].slice(-8)
+  sessao.turnosRecentes = [
+    ...(sessao.turnosRecentes ?? []),
+    { role, content: textoSeguro, timestamp: new Date().toISOString() },
+  ].slice(-8)
+}
+
+export function fecharPedidoAtivoEArquivar(sessao: Sessao): void {
+  const ativo = sessao.pedido_ativo
+  if (!ativo) return
+
+  ativo.status = "closed"
+  const historico: PedidoHistorico = {
+    request_id: ativo.request_id,
+    service_slug: ativo.service.slug,
+    neighborhood_name: ativo.location.neighborhood_name,
+    region: ativo.location.region,
+    closed_at: new Date().toISOString(),
+  }
+
+  sessao.pedidos_anteriores = [historico, ...sessao.pedidos_anteriores].slice(0, 5)
+  sessao.pedido_ativo = criarNovoPedido()
 }
 
 export async function carregarSessao(telefone: string): Promise<Sessao> {
@@ -106,9 +198,14 @@ export async function carregarSessao(telefone: string): Promise<Sessao> {
 
 export async function salvarSessao(telefone: string, sessao: Sessao): Promise<void> {
   const hash = hashContato(telefone)
+  sessao.versao = 3
+  if (sessao.pedido_ativo) {
+    sessao.pedido_ativo.updated_at = new Date().toISOString()
+  }
+
   await supabase.from("sessoes").upsert({
     contato_hash: hash,
-    estado: { ...sessao, versao: 1 },
+    estado: sessao,
     atualizado_em: new Date().toISOString(),
   })
 }
@@ -116,31 +213,4 @@ export async function salvarSessao(telefone: string, sessao: Sessao): Promise<vo
 export async function limparSessao(telefone: string): Promise<void> {
   const hashes = [hashContato(telefone), hashContatoLegado(telefone)]
   await supabase.from("sessoes").delete().in("contato_hash", hashes)
-}
-
-function sessaoVazia(): Sessao {
-  return {
-    versao: 1,
-    categoria: null,
-    bairro: null,
-    bairroCandidato: null,
-    bairroSugerido: null,
-    tentativasLocalizacao: 0,
-    leadSemBairroRegistrado: false,
-    regiao: null,
-    urgente: null,
-    perguntaPendente: null,
-    turnosRecentes: [],
-    buscaConcluida: false,
-    resultadoUltimaBusca: null,
-    nome: null,
-    profissionaisIndicados: [],
-    tentativasEsclarecimento: 0,
-    ultimaIntencao: null,
-    categoriasPendentes: [],
-    servicosNaFila: [],
-    servicoAtual: null,
-    aguardandoConfirmacaoServico: false,
-    primeiraInteracao: true,
-  }
 }

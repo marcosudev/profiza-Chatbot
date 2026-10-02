@@ -51,14 +51,15 @@ export const mensagens = {
     bairro: string,
     proximoServico?: string | null,
     urgente?: boolean | null,
-    prioridadeMatch: 1 | 2 | null = 1
+    prioridadeMatch: 1 | 2 | null = 1,
+    incluirNotaInstitucional: boolean = true
   ): string {
     const header = prioridadeMatch === 2
-      ? `Não encontrei profissionais de *${categoria}* no bairro *${bairro}*, mas achei opções em outros bairros da mesma região.\n`
+      ? `Não encontrei profissionais de *${categoria}* cadastrados diretamente no bairro *${bairro}*, mas estes atendem a sua região:\n`
       : `Ótima notícia! Encontrei opções de profissionais para você 🎉\n`
 
     const lista = profs.map(prof => {
-      const bairros = prof.bairros.length > 0 ? prof.bairros.join(", ") : "confirme a cobertura com o profissional"
+      const bairros = prof.bairros.length > 0 ? prof.bairros.join(", ") : "atende a região"
       const item = [
         `👷 *${prof.nome}*`,
         `🔧 ${categoria}`,
@@ -71,7 +72,10 @@ export const mensagens = {
       return item.join("\n")
     }).join("\n\n")
 
-    const nota = `_A Profiza indica profissionais cadastrados; o serviço é combinado diretamente com eles._`
+    const nota = incluirNotaInstitucional
+      ? `\n\n_A Profiza indica profissionais cadastrados; o serviço é combinado diretamente com eles._`
+      : ""
+
     const observacaoUrgencia = urgente === true
       ? "\n\nEntendi que é urgente. Confirme diretamente com o profissional o prazo de atendimento."
       : urgente === false
@@ -83,18 +87,26 @@ export const mensagens = {
       : urgente === null
         ? "O atendimento é urgente ou pode aguardar? Se precisar de mais opções, é só pedir!"
         : "Entre em contato diretamente e mencione que veio pelo Profiza! Se precisar de mais contatos, é só pedir!"
-    return `${header}\n${lista}\n\n${nota}${observacaoUrgencia}\n\n${fechamento}`
+
+    return `${header}\n${lista}${nota}${observacaoUrgencia}\n\n${fechamento}`
   },
 
-  // Profissional encontrado mas em bairro diferente (fallback)
-  profissionalFallback(profs: Profissional[], categoria: string, bairroSolicitado: string, proximoServico?: string | null, urgente?: boolean | null): string {
-    const header = `Encontrei profissionais de *${categoria}*, mas talvez não atendam ${bairroSolicitado} ainda.\n`
+  // Profissional encontrado mas em cobertura municipal (fallback)
+  profissionalFallback(
+    profs: Profissional[],
+    categoria: string,
+    bairroSolicitado: string,
+    proximoServico?: string | null,
+    urgente?: boolean | null,
+    incluirNotaInstitucional: boolean = true
+  ): string {
+    const header = `Não encontrei profissionais de *${categoria}* apenas no bairro *${bairroSolicitado}*, mas estes profissionais atendem a cidade toda:\n`
 
     const lista = profs.map(prof => {
-      const bairros = prof.bairros.length > 0 ? prof.bairros.join(", ") : "confirme a cobertura com o profissional"
+      const bairros = prof.bairros.length > 0 ? prof.bairros.join(", ") : "atende a cidade toda"
       const item = [
         `👷 *${prof.nome}*`,
-        `📍 Atende: ${bairros}`,
+        `📍 Cobertura: ${bairros}`,
         `📱 ${prof.whatsapp}`,
       ]
       if (prof.linkContato) {
@@ -103,7 +115,10 @@ export const mensagens = {
       return item.join("\n")
     }).join("\n\n")
 
-    const nota = `_A Profiza indica profissionais cadastrados; o serviço é combinado diretamente com eles._`
+    const nota = incluirNotaInstitucional
+      ? `\n\n_A Profiza indica profissionais cadastrados; o serviço é combinado diretamente com eles._`
+      : ""
+
     const observacaoUrgencia = urgente === true
       ? "\n\nEntendi que é urgente. Confirme diretamente com o profissional se ele consegue atender no prazo que você precisa."
       : urgente === false
@@ -111,11 +126,12 @@ export const mensagens = {
         : ""
 
     const fechamento = proximoServico
-      ? `Vale confirmar se eles atendem sua região. Posso buscar também profissionais de *${proximoServico}*? Se houver um prazo importante, me conte também.`
+      ? `Posso buscar também profissionais de *${proximoServico}*? Se houver um prazo importante, me conte também.`
       : urgente === null
-        ? "Vale confirmar se eles atendem sua região. O atendimento é urgente ou pode aguardar? Se precisar de mais opções, é só pedir!"
-        : "Vale confirmar se eles atendem sua região. 😊 Se precisar de mais contatos, é só pedir!"
-    return `${header}\n${lista}\n\n${nota}${observacaoUrgencia}\n\n${fechamento}`
+        ? "O atendimento é urgente ou pode aguardar? Se precisar de mais opções, é só pedir!"
+        : "Se precisar de mais contatos, é só pedir!"
+
+    return `${header}\n${lista}${nota}${observacaoUrgencia}\n\n${fechamento}`
   },
 
   pedirFeedbackCliente(categoria: string, nomeProfissional: string): string {
@@ -140,9 +156,9 @@ export const mensagens = {
     ].join("\n")
   },
 
-  // Nenhum profissional encontrado
+  // Ausência de resultado em conformidade com o Invariante I-11 (sem promessa de aviso futuro sem opt-in)
   semMatch(categoria: string, bairro: string | null, templateCustomizado?: string, proximoServico?: string | null): string {
-    const local = bairro ? ` em ${bairro}` : ""
+    const local = bairro ? ` em *${bairro}*` : ""
     let resposta: string
     if (templateCustomizado) {
       resposta = templateCustomizado
@@ -150,18 +166,16 @@ export const mensagens = {
         .replace(/\{local\}/g, local)
     } else {
       resposta = [
-        `Ainda não temos um profissional de *${categoria}*${local} cadastrado. 😕`,
+        `No momento não encontrei profissionais disponíveis de *${categoria}*${local} na nossa base.`,
         ``,
-        `Vou registrar sua solicitação e assim que tivermos alguém disponível na sua região, te avisamos!`,
-        ``,
-        `Obrigado por usar o Profiza 🙏`,
+        `Registrei a sua procura para priorizarmos o cadastro de novos profissionais nessa área.`,
+        `Se você quiser tentar outro bairro ou buscar outro serviço, estou à disposição!`,
       ].join("\n")
     }
     return proximoServico ? `${resposta}\n\nPosso buscar também profissionais de *${proximoServico}*?` : resposta
   },
 
-  // Não entendeu a mensagem (sem categoria)
-  naoEntendeu(categoriasTexto?: string): string {
+  naoEntendeu(): string {
     return [
       `Olá! Sou o assistente da *Profiza*.`,
       ``,
@@ -170,11 +184,11 @@ export const mensagens = {
   },
 
   pedirServico(): string {
-    return "Claro, o que você precisa resolver? Pode me explicar do seu jeito."
+    return "Claro, qual serviço você precisa resolver? Pode me explicar do seu jeito."
   },
 
   categoriaAmbigua(opcoes: string[]): string {
-    return `Para eu acertar: qual serviço você precisa: ${opcoes.join(" ou ")}?`
+    return `Para eu te indicar o profissional certo: qual serviço você precisa: ${opcoes.join(" ou ")}?`
   },
 
   confirmarOrdem(opcoes: string[]): string {
@@ -184,7 +198,6 @@ export const mensagens = {
     return `Anotei: ${ordem}. Vou começar por *${opcoes[0]}* e depois buscar os demais. Posso seguir nessa ordem?`
   },
 
-  // Categoria entendida mas bairro não informado
   pedirBairro(categoria: string, templateCustomizado?: string): string {
     if (templateCustomizado) {
       return templateCustomizado.replace(/\{categoria\}/g, categoria)
@@ -197,24 +210,29 @@ export const mensagens = {
   },
 
   confirmarBairro(candidato: string, bairroOficial: string): string {
-    return `Você quis dizer *${bairroOficial}*, em vez de *${candidato}*? Se sim, pode responder “sim”; se não, me diga outro bairro ou uma referência próxima.`
+    return `Você quis dizer *${bairroOficial}*? Se for, pode responder “sim”; se for outro bairro, me diga o nome ou um ponto de referência próximo.`
+  },
+
+  desambiguarBairros(opcoes: Array<{ nome: string; regiao: string }>): string {
+    const lista = opcoes.map((o, idx) => `${idx + 1}. *${o.nome}* (${o.regiao})`).join("\n")
+    return `Encontrei mais de um bairro parecido. Qual deles é o seu?\n\n${lista}\n\nPode responder com o número ou o nome.`
   },
 
   bairroNaoEncontrado(candidato: string): string {
-    return `Não consegui confirmar *${candidato}* como bairro de Bauru. Pode me dizer outro nome de bairro ou um ponto de referência próximo?`
+    return `Não achei exatamente o nome *${candidato}*. Pode me dizer um ponto de referência próximo, uma avenida conhecida ou a região (Norte, Sul, Centro, etc.)?`
   },
 
   bairroAindaNaoConfirmado(candidato: string): string {
-    return `Ainda não consegui confirmar *${candidato}*. Vou pedir ajuda à equipe para localizar a região certa.`
+    return `Ainda não consegui confirmar a localização exata de *${candidato}*. Vou pedir ajuda para a nossa equipe entrar em contato e localizar a região certa.`
   },
 
   naoConseguiValidarBairro(): string {
-    return "Não consegui validar esse bairro agora por uma falha temporária. Seu pedido continua salvo; tente novamente em alguns instantes."
+    return "Tive uma instabilidade temporária ao consultar os bairros. Seu pedido continua salvo; tente novamente em alguns instantes."
   },
 
   atualizarUrgenciaSemMatch(categoria: string, bairro: string, urgente: boolean): string {
     const prazo = urgente ? "Entendi que você precisa com urgência." : "Entendi que pode aguardar."
-    return `${prazo} A busca por um profissional de *${categoria}* em *${bairro}* já foi feita, mas ainda não encontrei alguém cadastrado nessa região. Não vou repetir a mesma busca; posso tentar outra região se você preferir.`
+    return `${prazo} A busca por um profissional de *${categoria}* em *${bairro}* já foi feita, mas não encontramos profissionais nessa região. Posso tentar buscar em outra região se você preferir.`
   },
 
   atualizarUrgenciaComMatch(urgente: boolean): string {
@@ -229,10 +247,9 @@ export const mensagens = {
   },
 
   buscaIndisponivel(): string {
-    return "Não consegui consultar os profissionais agora por uma falha temporária. Seu pedido não foi marcado como sem profissionais; tente novamente em alguns instantes."
+    return "Não consegui consultar os profissionais agora por uma instabilidade temporária no sistema. Por favor, tente novamente em alguns instantes."
   },
 
-  // Erro interno
   erroInterno(): string {
     return "Desculpe, tive um problema técnico. Tente novamente em alguns instantes. 🙏"
   },
@@ -241,11 +258,11 @@ export const mensagens = {
     return [
       "⚠️ Isso parece uma emergência!",
       "",
-      "Acione imediatamente:",
+      "Afaste-se do local de risco e acione imediatamente:",
       "🚒 Bombeiros: 193",
       "🚑 SAMU: 192",
       "",
-      "Depois que estiver seguro, me avise que indico um profissional para o reparo! 🔧",
+      "Assim que estiver em segurança, me avise por aqui para indicar um profissional para o reparo! 🔧",
     ].join("\n")
   },
 
@@ -255,17 +272,45 @@ export const mensagens = {
       "",
       "Acesse: profiza.net/cadastro",
       "",
-      "30 dias grátis, depois R$ 29,90/mês. Cancelamento a qualquer momento!",
+      "Cadastre seus dados e categorias de atendimento para receber pedidos diretamente no seu WhatsApp!",
+    ].join("\n")
+  },
+
+  comoFunciona(): string {
+    return [
+      "A *Profiza* conecta você diretamente a profissionais de serviços verificados em Bauru/SP.",
+      "",
+      "1. Você me diz o serviço e o bairro.",
+      "2. Eu indico profissionais cadastrados que atendem sua região.",
+      "3. O orçamento e o pagamento são combinados diretamente entre você e o profissional, sem taxas para o cliente.",
+      "",
+      "Me diga: qual serviço você precisa hoje? 🔧",
+    ].join("\n")
+  },
+
+  perguntaPreco(): string {
+    return [
+      "A Profiza não define preços fixos para os serviços. Os valores variam conforme o trabalho e são combinados diretamente com o profissional indicado.",
+      "",
+      "Quer que eu indique os profissionais disponíveis para você solicitar um orçamento sem compromisso?",
+    ].join("\n")
+  },
+
+  qualOMelhor(): string {
+    return [
+      "Nossas indicações priorizam profissionais verificados mais próximos do seu bairro e região, distribuindo as oportunidades de forma justa.",
+      "",
+      "Qual serviço e bairro você gostaria de consultar?",
     ].join("\n")
   },
 
   foraEscopo(): string {
-    return "Sou especializado em indicar profissionais em Bauru. Me conta qual serviço você precisa e em qual bairro! 🔧👷"
+    return "Sou especializado em indicar profissionais de serviços (eletricista, encanador, pintor, etc.) em Bauru/SP. Me conta qual reparo ou serviço você precisa! 🔧👷"
   },
 
   reclamacaoRegistrada(): string {
     return [
-      "Registrei sua reclamação e nossa equipe vai analisar. 🙏",
+      "Registrei sua reclamação e nossa equipe vai analisar com prioridade. 🙏",
       "",
       "Um atendente entrará em contato em breve.",
     ].join("\n")
@@ -285,7 +330,14 @@ export const mensagens = {
       "Obrigado por compartilhar sua localização! 📍",
       "",
       "Por enquanto a Profiza atende apenas Bauru/SP.",
-      "Quer que eu te avise quando chegarmos na sua cidade? 😊",
+      "Se tiver algum serviço para realizar em Bauru, é só me avisar! 😊",
     ].join("\n")
+  },
+
+  reparoFrustracao(bairroResolvido?: string | null): string {
+    if (bairroResolvido) {
+      return `Desculpe a confusão! Já anotei que é no *${bairroResolvido}*. Buscando os profissionais agora...`
+    }
+    return `Peço desculpas pela repetição! Vamos direto ao ponto: me informe apenas o que precisa e eu busco para você.`
   },
 }
