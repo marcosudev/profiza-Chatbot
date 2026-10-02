@@ -33,6 +33,8 @@ export const bairros: Bairro[] = [
   { nome: "Parque Paulistano", apelidos: ["paulistano"], regiao: "Sul" },
   { nome: "Jardim Petrópolis", apelidos: ["petrópolis", "petropolis"], regiao: "Sul" },
   { nome: "Vila Lemos", apelidos: ["lemos"], regiao: "Sul" },
+  { nome: "Jardim Europa", apelidos: ["europa", "jd europa", "jardim europa"], regiao: "Sul" },
+  { nome: "Parque Jardim Europa", apelidos: ["parque europa", "pq europa", "pq jardim europa", "parque jardim europa"], regiao: "Sul" },
 
   // Leste
   { nome: "Jardim Contorno", apelidos: ["contorno"], regiao: "Leste" },

@@ -23,6 +23,7 @@ import {
   criarNovoPedido,
   fecharPedidoAtivoEArquivar,
   type Sessao,
+  type TurnoConversa,
 } from "./session"
 import {
   buscarProfissionais,
@@ -600,7 +601,7 @@ async function enviarRespostaSegura(
     return null
   }
 
-  const ultimoTextoEnviado = sessao.turnosRecentes.filter(t => t.role === "assistant").slice(-1)[0]?.content ?? null
+  const ultimoTextoEnviado = sessao.turnosRecentes.filter((t: TurnoConversa) => t.role === "assistant").slice(-1)[0]?.content ?? null
 
   const validacao = validarSaida({
     textoGerado: texto,
@@ -612,7 +613,7 @@ async function enviarRespostaSegura(
   if (!validacao.valido) {
     console.warn(`[bot] Guardrail acionado! Motivos: ${validacao.motivos.join("; ")}`)
     // Se a validação reprovou por anti-repetição ou contato inventado, higieniza com template seguro
-    if (validacao.motivos.some(m => m.includes("I-04"))) {
+    if (validacao.motivos.some((m: string) => m.includes("I-04"))) {
       textoFinal = `Continuando seu atendimento: se precisar de outros profissionais ou de mais opções para ${sessao.pedido_ativo?.service.slug ?? "este serviço"}, é só me avisar!`
     }
   }

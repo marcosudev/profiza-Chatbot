@@ -81,7 +81,7 @@ const casosDeTeste: TestCase[] = [
   },
   { id: 19, categoriaTeste: "Localização", descricao: "Resolução tolerante: 'Jardim Oropa' sugere 'Jardim Europa'", validacao: () => {
       const res = resolverLocalizacaoAvancada("Jardim Oropa", undefined, true)
-      return res.bairroOficial === "Jardim Europa" || res.opcoes.some(o => o.nome === "Jardim Europa")
+      return res.bairroOficial === "Jardim Europa" || res.opcoes.some((o: { nome: string }) => o.nome === "Jardim Europa")
     }
   },
   { id: 20, categoriaTeste: "Localização", descricao: "Damerau-Levenshtein trata transposição de letras", validacao: () => {
@@ -167,14 +167,14 @@ const casosDeTeste: TestCase[] = [
       const profs: Profissional[] = [{ id: "1", nome: "Carlos", whatsapp: "5514991112233", categoria: "encanador", bairros: ["Centro"], regiao: "Central", status: "ativa" }]
       const textoComTelefoneAlucinado = "Encontrei o Carlos! Fale com ele no 14 99888-7766 ou 14 99111-2233."
       const res = validarSaida({ textoGerado: textoComTelefoneAlucinado, profissionaisRetornados: profs })
-      return !res.valido && res.motivos.some(m => m.includes("I-01"))
+      return !res.valido && res.motivos.some((m: string) => m.includes("I-01"))
     }
   },
   { id: 39, categoriaTeste: "Guardrails", descricao: "I-11: Rejeita promessa proibida de preço e garantia sem fonte", validacao: () => {
       const profs: Profissional[] = [{ id: "1", nome: "Carlos", whatsapp: "5514991112233", categoria: "encanador", bairros: ["Centro"], regiao: "Central", status: "ativa" }]
       const textoComPreco = "Encontrei o Carlos (5514991112233) por apenas R$ 150 garantido 100%."
       const res = validarSaida({ textoGerado: textoComPreco, profissionaisRetornados: profs })
-      return !res.valido && res.motivos.some(m => m.includes("promessa ou afirmação proibida"))
+      return !res.valido && res.motivos.some((m: string) => m.includes("promessa ou afirmação proibida"))
     }
   },
   { id: 40, categoriaTeste: "Guardrails", descricao: "I-04: Detecta saída consecutiva com similaridade >= 0.85", validacao: () => {
